@@ -1,4 +1,4 @@
-const CONFIG={VERSION:"0.4.1",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec"};
+const CONFIG={VERSION:"0.4.2",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec"};
 const now=new Date();
 const state={view:"home",today:null,trials:[],members:[],payments:[],dashboard:null,monthYear:now.getFullYear(),monthIndex:now.getMonth(),selectedDate:null};
 const $=s=>document.querySelector(s),viewEl=$("#view"),titleEl=$("#pageTitle"),toastEl=$("#toast");
@@ -164,12 +164,13 @@ async function togglePresence(id,type){
   if(!p)return;
   const lessonDate=state.selectedDate||todayKey();
   const previous=!!p.present;
-  p.present=!previous;
-  setCachedPresence(lessonDate,id,p.present);
+  const next=!previous;
+  p.present=next;
+  setCachedPresence(lessonDate,id,next);
   setLessonConfirmed(lessonDate,false);
   renderHome();
   try{
-    await api("togglePresence",{id,personId:type==="trial"?(p.personId||id):id,type,lessonDate});
+    await api("setPresence",{id,personId:type==="trial"?(p.personId||id):id,type,lessonDate,present:next});
   }catch(e){
     p.present=previous;
     setCachedPresence(lessonDate,id,previous);
@@ -178,9 +179,8 @@ async function togglePresence(id,type){
   }
 }
 async function forceAbsent(entity,type,date){
-  const payload={id:entity.id,personId:type==="trial"?(entity.personId||entity.id):entity.id,type,lessonDate:date};
-  await api("togglePresence",payload);
-  await api("togglePresence",payload);
+  const payload={id:entity.id,personId:type==="trial"?(entity.personId||entity.id):entity.id,type,lessonDate:date,present:false};
+  await api("setPresence",payload);
   setCachedPresence(date,entity.id,false);
 }
 function openLessonConfirm(){
