@@ -1,4 +1,4 @@
-const CONFIG={VERSION:"0.3.1",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec"};
+const CONFIG={VERSION:"0.4.0",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec"};
 const now=new Date();
 const state={view:"home",today:null,trials:[],members:[],payments:[],dashboard:null,monthYear:now.getFullYear(),monthIndex:now.getMonth(),selectedDate:null};
 const $=s=>document.querySelector(s),viewEl=$("#view"),titleEl=$("#pageTitle"),toastEl=$("#toast");
@@ -12,6 +12,12 @@ function fmtDate(v){if(!v)return"—";const d=new Date(String(v).length===10?v+"
 function money(v){return new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR"}).format(Number(v||0))}
 function dateKey(d){const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,"0"),day=String(d.getDate()).padStart(2,"0");return y+"-"+m+"-"+day}
 function todayKey(){return dateKey(new Date())}
+function attendanceCache(){try{return JSON.parse(localStorage.getItem("parkour_attendance_cache")||"{}")}catch(_){return{}}}
+function cachedPresence(date,id){const c=attendanceCache();return c[date]&&Object.prototype.hasOwnProperty.call(c[date],id)?!!c[date][id]:null}
+function setCachedPresence(date,id,value){const c=attendanceCache();c[date]=c[date]||{};c[date][id]=!!value;localStorage.setItem("parkour_attendance_cache",JSON.stringify(c))}
+function confirmedLessons(){try{return JSON.parse(localStorage.getItem("parkour_confirmed_lessons")||"{}")}catch(_){return{}}}
+function setLessonConfirmed(date,value){const c=confirmedLessons();if(value)c[date]=true;else delete c[date];localStorage.setItem("parkour_confirmed_lessons",JSON.stringify(c))}
+
 
 async function api(action,data={}){
   if(!backend()||!token())throw new Error("Gestionale non collegato");
@@ -78,6 +84,10 @@ function expectedMembersForSelectedDate(key){
     if(day===2 && (f.includes("martedì")||f.includes("martedi")))return true;
     if(day===4 && (f.includes("giovedì")||f.includes("giovedi")))return true;
     return false;
+  }).map(m=>{
+    const cp=cachedPresence(key,m.id);
+    if(cp!==null)m.present=cp;
+    return m;
   });
 }
 function lessonDetail(){
@@ -96,7 +106,9 @@ function lessonDetail(){
     html+='<div class="section-head"><h2>IN PROVA</h2><span class="badge trial">'+trials.length+'</span></div>';
     html+=trials.map(t=>'<button class="person '+(t.present?"present":"")+'" onclick="togglePresence(\''+esc(t.id)+'\',\'trial\')"><span class="avatar">'+initials(t.name)+'</span><span class="person-main"><span class="person-name">'+esc(t.name)+'</span><span class="person-sub">'+(t.age||"—")+' anni · PROVA</span></span><span class="tick">✓</span></button>').join("");
   }
-  html+='<div class="empty warning-box">Tocca un nome per registrare la presenza sulla data selezionata. La chiusura automatica resta disattivata finché completiamo la gestione degli iscritti 1× settimana.</div>';
+  const confirmed=!!confirmedLessons()[key];
+  html+='<div class="actions"><button class="primary confirm-lesson-btn '+(confirmed?"confirmed":"")+'" onclick="confirmLesson()">'+(confirmed?"LEZIONE CONFERMATA ✓":"CONFERMA LEZIONE")+'</button></div>';
+  html+='<div class="empty attendance-hint">Tocca i presenti: la selezione è immediata. Quando hai finito, Conferma lezione registra come assenti solo le persone previste per questa data che non hai selezionato.</div>';
   return html+'</section>';
 }
 function personSection(title,list,trial){
@@ -144,15 +156,51 @@ function render(){document.querySelectorAll(".nav-item").forEach(b=>b.classList.
 document.querySelectorAll(".nav-item").forEach(b=>b.addEventListener("click",()=>{state.view=b.dataset.view;render()}));$("#syncBtn").addEventListener("click",loadAll);
 
 async function togglePresence(id,type){
+  const p=type==="trial"?state.trials.find(x=>x.id===id):state.members.find(x=>x.id===id);
+  if(!p)return;
+  const lessonDate=state.selectedDate||todayKey();
+  const previous=!!p.present;
+  p.present=!previous;
+  setCachedPresence(lessonDate,id,p.present);
+  setLessonConfirmed(lessonDate,false);
+  renderHome();
   try{
-    const p=type==="trial"?state.trials.find(x=>x.id===id):state.members.find(x=>x.id===id);
-    const lessonDate=state.selectedDate||todayKey();
-    await api("togglePresence",{id,personId:type==="trial"?(p?.personId||id):id,type,lessonDate});
-    if(p)p.present=!p.present;
-    toast((p?.present?"Presente":"Assente")+" · "+fmtDate(lessonDate));
+    await api("togglePresence",{id,personId:type==="trial"?(p.personId||id):id,type,lessonDate});
+  }catch(e){
+    p.present=previous;
+    setCachedPresence(lessonDate,id,previous);
     renderHome();
-  }catch(e){toast(e.message)}
+    toast("Salvataggio non riuscito: "+e.message);
+  }
 }
+async function forceAbsent(entity,type,date){
+  const payload={id:entity.id,personId:type==="trial"?(entity.personId||entity.id):entity.id,type,lessonDate:date};
+  await api("togglePresence",payload);
+  await api("togglePresence",payload);
+  setCachedPresence(date,entity.id,false);
+}
+async function confirmLesson(){
+  const key=state.selectedDate;
+  if(!key)return;
+  const members=expectedMembersForSelectedDate(key);
+  const trials=trialsFor(key).map(t=>{const cp=cachedPresence(key,t.id);if(cp!==null)t.present=cp;return t});
+  const people=[...members.map(x=>({entity:x,type:"member"})),...trials.map(x=>({entity:x,type:"trial"}))];
+  const present=people.filter(x=>x.entity.present);
+  const absent=people.filter(x=>!x.entity.present);
+  if(!confirm("Confermare la lezione del "+fmtDate(key)+"?\n\nPresenti: "+present.length+"\nAssenti: "+absent.length))return;
+  setLessonConfirmed(key,true);
+  renderHome();
+  toast("Lezione confermata · salvataggio assenze in corso");
+  try{
+    await Promise.all(absent.map(x=>forceAbsent(x.entity,x.type,key)));
+    toast("Lezione confermata");
+  }catch(e){
+    setLessonConfirmed(key,false);
+    renderHome();
+    toast("Errore nel salvataggio delle assenze: "+e.message);
+  }
+}
+
 async function markTrial(id,status){try{await api("setTrialStatus",{bookingId:id,status});toast(status);await loadAll()}catch(e){toast(e.message)}}
 async function convertTrial(id){
   const freq=prompt("Frequenza: 1 oppure 2 volte a settimana?","1");if(!freq)return;
@@ -162,22 +210,67 @@ async function convertTrial(id){
   if(payNow){const amount=Number(prompt("Importo in euro:",String(freq).trim()==="2"?"480":"290"));if(!amount)return;const method=prompt("Metodo: Contanti / Bonifico / PayPal / Altro","Contanti")||"Altro";payment={type:plan,amount,method,invoiced:"No"}}
   try{await api("convertTrial",{bookingId:id,frequency:String(freq)+"x/settimana - "+day,plan,payment});toast("Iscritto creato");await loadAll()}catch(e){toast(e.message)}
 }
-async function newMember(){
-  const name=prompt("Nome e cognome:");if(!name)return;
-  const age=Number(prompt("Età:","18"));if(!age||age<18){toast("Età non valida");return}
-  const phone=prompt("Telefono (opzionale):","")||"";
-  const email=prompt("Email (opzionale):","")||"";
-  const freq=prompt("Frequenza: 1 oppure 2 volte a settimana?","1");if(!freq)return;
-  let day="Martedì+Giovedì";if(String(freq).trim()==="1"){day=prompt("Giorno abituale: Martedì oppure Giovedì","Martedì");if(!day)return}
-  const plan=prompt("Pacchetto: Mese di prova / Annuale / 3 rate","Annuale")||"Annuale";
+let memberDraft={frequency:"2",day:"Martedì+Giovedì",plan:"Annuale",payment:"No",method:"Contanti"};
+function newMember(){
+  memberDraft={frequency:"2",day:"Martedì+Giovedì",plan:"Annuale",payment:"No",method:"Contanti"};
+  const ages=Array.from({length:63},(_,i)=>i+18).map(a=>'<option value="'+a+'">'+a+'</option>').join("");
+  const html='<div class="modal-backdrop" id="memberModal"><div class="member-modal">'+
+    '<div class="modal-header"><div><div class="eyebrow">NUOVO ISCRITTO</div><h2>Aggiungi persona</h2></div><button class="modal-close" onclick="closeMemberModal()">×</button></div>'+
+    '<label class="field-label">Nome e cognome</label><input id="memberName" class="big-input" autocomplete="name" placeholder="Es. Mario Rossi">'+
+    '<label class="field-label">Età</label><select id="memberAge" class="big-select">'+ages+'</select>'+
+    choiceGroup("Frequenza","frequency",[["1","1× settimana"],["2","2× settimana"]],"2")+
+    '<div id="memberDayGroup" style="display:none">'+choiceGroup("Giorno","day",[["Martedì","Martedì"],["Giovedì","Giovedì"]],"Martedì")+'</div>'+
+    choiceGroup("Pacchetto","plan",[["Annuale","Annuale"],["3 rate","3 rate"],["Mese di prova","Mese di prova"]],"Annuale")+
+    choiceGroup("Pagamento","payment",[["No","Non pagato"],["Sì","Pagato ora"]],"No")+
+    '<div id="memberMethodGroup" style="display:none">'+choiceGroup("Metodo","method",[["Contanti","Contanti"],["Bonifico","Bonifico"],["PayPal","PayPal"],["Altro","Altro"]],"Contanti")+'</div>'+
+    '<button class="primary modal-save" onclick="saveMember()">SALVA ISCRITTO</button>'+
+  '</div></div>';
+  document.body.insertAdjacentHTML("beforeend",html);
+  document.querySelector("#memberName").focus();
+}
+function choiceGroup(label,group,items,selected){
+  return '<div class="choice-section"><div class="field-label">'+label+'</div><div class="choice-grid">'+items.map(x=>'<button type="button" class="choice-btn '+(x[0]===selected?"selected":"")+'" data-group="'+group+'" data-value="'+x[0]+'" onclick="chooseMemberOption(\''+group+'\',\''+x[0]+'\',this)">'+x[1]+'</button>').join("")+'</div></div>';
+}
+function chooseMemberOption(group,value,btn){
+  memberDraft[group]=value;
+  document.querySelectorAll('[data-group="'+group+'"]').forEach(x=>x.classList.remove("selected"));
+  btn.classList.add("selected");
+  if(group==="frequency"){
+    const g=document.querySelector("#memberDayGroup");
+    g.style.display=value==="1"?"block":"none";
+    memberDraft.day=value==="1"?"Martedì":"Martedì+Giovedì";
+  }
+  if(group==="payment"){
+    document.querySelector("#memberMethodGroup").style.display=value==="Sì"?"block":"none";
+  }
+}
+function closeMemberModal(){document.querySelector("#memberModal")?.remove()}
+function memberAmount(){
+  const f=memberDraft.frequency, p=memberDraft.plan;
+  if(p==="Annuale")return f==="2"?480:290;
+  if(p==="3 rate")return f==="2"?165:110;
+  return f==="2"?60:45;
+}
+async function saveMember(){
+  const name=document.querySelector("#memberName").value.trim();
+  const age=Number(document.querySelector("#memberAge").value);
+  if(!name){toast("Inserisci nome e cognome");return}
+  const frequency=memberDraft.frequency==="2"?"2x/settimana - Martedì+Giovedì":"1x/settimana - "+memberDraft.day;
+  const saveBtn=document.querySelector(".modal-save");
+  saveBtn.disabled=true;saveBtn.textContent="SALVATAGGIO…";
   try{
-    const out=await api("walkIn",{name,age,phone,email,plan,frequency:String(freq)+"x/settimana - "+day});
-    toast("Nuovo iscritto aggiunto");
-    if(confirm("Vuoi registrare subito anche un pagamento?")){
-      const amount=Number(prompt("Importo in euro:",String(freq).trim()==="2"?"480":"290"));if(amount){const method=prompt("Metodo: Contanti / Bonifico / PayPal / Altro","Contanti")||"Altro";await api("recordPayment",{personId:out.personId,name,type:plan,amount,method,invoiced:"No"})}
+    const out=await api("walkIn",{name,age,plan:memberDraft.plan,frequency});
+    if(memberDraft.payment==="Sì"){
+      await api("recordPayment",{personId:out.personId,name,type:memberDraft.plan,amount:memberAmount(),method:memberDraft.method,invoiced:"No"});
     }
+    closeMemberModal();
+    toast("Iscritto aggiunto");
     await loadAll();
-  }catch(e){toast(e.message)}
+    state.view="members";render();
+  }catch(e){
+    saveBtn.disabled=false;saveBtn.textContent="SALVA ISCRITTO";
+    toast(e.message);
+  }
 }
 async function newPayment(personId){
   let member=personId?state.members.find(x=>x.id===personId):null;
