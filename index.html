@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#17352e">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Corso Parkour">
+  <title>Gestione Corso Parkour</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <div>
+        <div class="eyebrow">RICCARDO CALLI</div>
+        <h1 id="pageTitle">Oggi</h1>
+      </div>
+      <button id="syncBtn" class="icon-btn" aria-label="Aggiorna">↻</button>
+    </header>
+
+    <main id="view" class="view" aria-live="polite"></main>
+
+    <nav class="bottom-nav" aria-label="Navigazione principale">
+      <button data-view="today" class="nav-item active"><span>●</span><small>Oggi</small></button>
+      <button data-view="trials" class="nav-item"><span>◎</span><small>Prove</small></button>
+      <button data-view="members" class="nav-item"><span>◉</span><small>Iscritti</small></button>
+      <button data-view="payments" class="nav-item"><span>€</span><small>Pagamenti</small></button>
+      <button data-view="dashboard" class="nav-item"><span>▥</span><small>Dashboard</small></button>
+    </nav>
+  </div>
+
+  <div id="toast" class="toast" hidden></div>
+  <script src="app.js" defer></script>
+</body>
+</html>
