@@ -160,3 +160,11 @@ select,input{width:100%;padding:13px;border:1px solid var(--line);border-radius:
 .confirm-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:16px 0}
 .confirm-copy{padding:14px;background:#eef4f1;border:1px solid #d8e5df;border-radius:14px;color:var(--muted);line-height:1.35}
 .confirm-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px}
+
+.amount-note{margin-top:14px;padding:12px 14px;border-radius:13px;background:#eef4f1;color:var(--brand);font-weight:800;text-align:center}
+.presence-pick{width:100%;display:flex;align-items:center;gap:12px;border:1px solid var(--line);background:#fff;border-radius:15px;padding:12px;margin-bottom:8px;text-align:left;color:var(--brand)}
+.presence-pick>span:nth-child(2){display:flex;flex-direction:column;min-width:0;flex:1}
+.presence-pick strong{font-size:15px}
+.presence-pick small{font-size:11px;color:var(--muted);margin-top:2px}
+.presence-pick .plus{font-size:24px;font-weight:800}
+.compact-note{padding:12px;margin-top:12px}
