@@ -1,9 +1,20 @@
-const CONFIG={VERSION:"0.5.2",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec"};
+const CONFIG={VERSION:"0.5.3",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec"};
 const now=new Date();
 const state={view:"home",today:null,trials:[],members:[],payments:[],dashboard:null,monthYear:now.getFullYear(),monthIndex:now.getMonth(),selectedDate:null};
 const $=s=>document.querySelector(s),viewEl=$("#view"),titleEl=$("#pageTitle"),toastEl=$("#toast");
 const backend=()=>localStorage.getItem("parkour_admin_endpoint")||CONFIG.DEFAULT_API;
 const token=()=>localStorage.getItem("parkour_admin_token")||"";
+(function resetMemberCachesOnce(){
+  try{
+    const key="parkour_member_reset_20260920_v1";
+    if(!localStorage.getItem(key)){
+      localStorage.removeItem("parkour_attendance_cache");
+      localStorage.removeItem("parkour_extra_attendance");
+      localStorage.removeItem("parkour_confirmed_lessons");
+      localStorage.setItem(key,"1");
+    }
+  }catch(_){}
+})();
 (function cleanupTestState(){
   try{
     const a=JSON.parse(localStorage.getItem("parkour_attendance_cache")||"{}");
@@ -401,7 +412,28 @@ async function newPayment(personId){
   const installment=prompt("Periodo/Rata (opzionale):","")||"";
   try{await api("recordPayment",{personId:member.id,name:member.name,type,amount,method,installment,invoiced:"No"});toast("Pagamento registrato");await loadAll()}catch(e){toast(e.message)}
 }
-async function memberDetail(id){const m=state.members.find(x=>x.id===id);if(!m)return;alert(m.name+"\n"+(m.plan||"")+"\n"+(m.frequency||"")+"\nUltima presenza: "+(m.lastAttendance?fmtDate(m.lastAttendance):"—")+"\nRischio drop: "+(m.risk||"—"))}
+function memberDetail(id){
+  const m=state.members.find(x=>x.id===id);
+  if(!m)return;
+  const value=v=>v&&String(v).trim()?esc(v):"—";
+  const html='<div class="modal-backdrop" id="memberDetailModal"><div class="member-modal">'+
+    '<div class="modal-header"><div><div class="eyebrow">DETTAGLI ISCRITTO</div><h2>'+esc(m.name)+'</h2></div><button class="modal-close" onclick="closeMemberDetail()">×</button></div>'+
+    '<div class="detail-grid">'+
+      '<div class="detail-item"><span>Età</span><strong>'+value(m.age)+'</strong></div>'+
+      '<div class="detail-item"><span>Stato</span><strong>'+value(m.status)+'</strong></div>'+
+      '<div class="detail-item"><span>Pacchetto</span><strong>'+value(m.plan)+'</strong></div>'+
+      '<div class="detail-item"><span>Frequenza</span><strong>'+value(m.frequency)+'</strong></div>'+
+      '<div class="detail-item"><span>Ultima presenza</span><strong>'+(m.lastAttendance?esc(fmtDate(m.lastAttendance)):"—")+'</strong></div>'+
+      '<div class="detail-item"><span>Rischio drop</span><strong>'+value(m.risk)+'</strong></div>'+
+      '<div class="detail-item wide"><span>Telefono</span><strong>'+value(m.phone)+'</strong></div>'+
+      '<div class="detail-item wide"><span>Email</span><strong>'+value(m.email)+'</strong></div>'+
+    '</div>'+
+    '<div class="confirm-actions"><button class="primary" onclick="detailPayment(\\''+esc(m.id)+'\\')">PAGAMENTO</button><button class="secondary" onclick="closeMemberDetail()">CHIUDI</button></div>'+
+  '</div></div>';
+  document.body.insertAdjacentHTML("beforeend",html);
+}
+function closeMemberDetail(){document.querySelector("#memberDetailModal")?.remove()}
+function detailPayment(id){closeMemberDetail();newPayment(id)}
 
 if("serviceWorker"in navigator)window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}));
 loadAll();
