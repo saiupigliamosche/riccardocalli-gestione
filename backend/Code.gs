@@ -29,6 +29,7 @@ function doPost(e) {
 
     if (action === 'bootstrap') return json_({ ok: true, data: bootstrap_() });
     if (action === 'togglePresence') return json_(togglePresence_(data));
+    if (action === 'setPresence') return json_(setPresence_(data));
     if (action === 'closeLesson') return json_(closeLesson_(data));
     if (action === 'convertTrial') return json_(convertTrial_(data));
     if (action === 'setTrialStatus') return json_(setTrialStatus_(data));
@@ -229,6 +230,56 @@ function togglePresence_(d) {
   }
   refreshMemberMetrics_();
   return { ok:true };
+}
+
+
+function setPresence_(d) {
+  const lessonKey = clean_(d.lessonDate) || Utilities.formatDate(new Date(), ADMIN.timezone, 'yyyy-MM-dd');
+  const personId = clean_(d.personId || d.id);
+  const type = clean_(d.type) === 'trial' ? 'Prova' : 'Iscritto';
+  const present = d.present === true || clean_(d.present) === 'Sì';
+  if (!personId) throw new Error('Persona non valida.');
+
+  const sh = sheet_(ADMIN.sheets.attendance);
+  const headers = headers_(sh);
+  const rows = sh.getDataRange().getValues();
+  let found = -1;
+
+  for (let i=1;i<rows.length;i++) {
+    const obj=rowObj_(headers,rows[i]);
+    if (dateKey_(obj['Data lezione'])===lessonKey && str_(obj['Persona ID'])===personId) {
+      found=i+1;
+      break;
+    }
+  }
+
+  if (found > 0) {
+    setCellByHeader_(sh,found,headers,'Presente',present?'Sì':'No');
+    setCellByHeader_(sh,found,headers,'Timestamp',new Date());
+  } else {
+    const entity = type==='Prova' ? findTrialEntity_(personId) : findMember_(personId);
+    appendByHeaders_(sh, {
+      'Data lezione': parseKey_(lessonKey),
+      'Nome e cognome': entity.name,
+      'Presente': present ? 'Sì' : 'No',
+      'Tipo': type,
+      'Orario': config_('Orario corso') || '19:00-20:30',
+      'Spot': config_('Spot nome') || config_('Spot corrente') || '',
+      'Presenza ID': id_('ATT'),
+      'Persona ID': type==='Prova' ? (entity.personId || personId) : personId,
+      'Lezione ID': lessonId_(lessonKey),
+      'Booking ID': type==='Prova' ? entity.id : '',
+      'Timestamp': new Date()
+    });
+  }
+
+  if (type==='Prova') {
+    const entity = findTrialEntity_(personId);
+    if (entity && entity.id) setTrialPresence_(entity.id,present?'Sì':'No');
+  }
+
+  refreshMemberMetrics_();
+  return { ok:true, present };
 }
 
 function closeLesson_(d) {
