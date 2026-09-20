@@ -1,4 +1,4 @@
-const CONFIG={VERSION:"0.4.0",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec"};
+const CONFIG={VERSION:"0.4.1",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec"};
 const now=new Date();
 const state={view:"home",today:null,trials:[],members:[],payments:[],dashboard:null,monthYear:now.getFullYear(),monthIndex:now.getMonth(),selectedDate:null};
 const $=s=>document.querySelector(s),viewEl=$("#view"),titleEl=$("#pageTitle"),toastEl=$("#toast");
@@ -107,7 +107,11 @@ function lessonDetail(){
     html+=trials.map(t=>'<button class="person '+(t.present?"present":"")+'" onclick="togglePresence(\''+esc(t.id)+'\',\'trial\')"><span class="avatar">'+initials(t.name)+'</span><span class="person-main"><span class="person-name">'+esc(t.name)+'</span><span class="person-sub">'+(t.age||"—")+' anni · PROVA</span></span><span class="tick">✓</span></button>').join("");
   }
   const confirmed=!!confirmedLessons()[key];
-  html+='<div class="actions"><button class="primary confirm-lesson-btn '+(confirmed?"confirmed":"")+'" onclick="confirmLesson()">'+(confirmed?"LEZIONE CONFERMATA ✓":"CONFERMA LEZIONE")+'</button></div>';
+  const totalPeople=members.length+trials.length;
+  const presentCount=[...members,...trials].filter(x=>x.present).length;
+  const absentCount=Math.max(0,totalPeople-presentCount);
+  html+='<div class="lesson-summary"><div><strong>'+presentCount+'</strong><span>Presenti</span></div><div><strong>'+absentCount+'</strong><span>Assenti</span></div><div><strong>'+totalPeople+'</strong><span>Previsti</span></div></div>';
+  html+='<div class="actions"><button class="primary confirm-lesson-btn '+(confirmed?"confirmed":"")+'" onclick="openLessonConfirm()">'+(confirmed?"LEZIONE CONFERMATA ✓":"CONFERMA LEZIONE")+'</button></div>';
   html+='<div class="empty attendance-hint">Tocca i presenti: la selezione è immediata. Quando hai finito, Conferma lezione registra come assenti solo le persone previste per questa data che non hai selezionato.</div>';
   return html+'</section>';
 }
@@ -179,18 +183,34 @@ async function forceAbsent(entity,type,date){
   await api("togglePresence",payload);
   setCachedPresence(date,entity.id,false);
 }
+function openLessonConfirm(){
+  const key=state.selectedDate;
+  if(!key)return;
+  const members=expectedMembersForSelectedDate(key);
+  const trials=trialsFor(key).map(t=>{const cp=cachedPresence(key,t.id);if(cp!==null)t.present=cp;return t});
+  const all=[...members,...trials];
+  const present=all.filter(x=>x.present).length;
+  const absent=all.length-present;
+  const modal='<div class="modal-backdrop" id="lessonConfirmModal"><div class="confirm-modal">'+
+    '<div class="modal-header"><div><div class="eyebrow">RIEPILOGO LEZIONE</div><h2>'+esc(fmtDate(key))+'</h2></div><button class="modal-close" onclick="closeLessonConfirm()">×</button></div>'+
+    '<div class="confirm-stats"><div><strong>'+present+'</strong><span>Presenti</span></div><div><strong>'+absent+'</strong><span>Assenti</span></div><div><strong>'+all.length+'</strong><span>Previsti</span></div></div>'+
+    '<div class="confirm-copy">Confermando, chi non è selezionato verrà registrato come assente.</div>'+
+    '<div class="confirm-actions"><button class="secondary" onclick="closeLessonConfirm()">ANNULLA</button><button class="primary" onclick="confirmLesson()">CONFERMA</button></div>'+
+  '</div></div>';
+  document.body.insertAdjacentHTML("beforeend",modal);
+}
+function closeLessonConfirm(){document.querySelector("#lessonConfirmModal")?.remove()}
 async function confirmLesson(){
   const key=state.selectedDate;
   if(!key)return;
   const members=expectedMembersForSelectedDate(key);
   const trials=trialsFor(key).map(t=>{const cp=cachedPresence(key,t.id);if(cp!==null)t.present=cp;return t});
   const people=[...members.map(x=>({entity:x,type:"member"})),...trials.map(x=>({entity:x,type:"trial"}))];
-  const present=people.filter(x=>x.entity.present);
   const absent=people.filter(x=>!x.entity.present);
-  if(!confirm("Confermare la lezione del "+fmtDate(key)+"?\n\nPresenti: "+present.length+"\nAssenti: "+absent.length))return;
+  closeLessonConfirm();
   setLessonConfirmed(key,true);
   renderHome();
-  toast("Lezione confermata · salvataggio assenze in corso");
+  toast("Lezione confermata · salvataggio in corso");
   try{
     await Promise.all(absent.map(x=>forceAbsent(x.entity,x.type,key)));
     toast("Lezione confermata");
@@ -200,7 +220,6 @@ async function confirmLesson(){
     toast("Errore nel salvataggio delle assenze: "+e.message);
   }
 }
-
 async function markTrial(id,status){try{await api("setTrialStatus",{bookingId:id,status});toast(status);await loadAll()}catch(e){toast(e.message)}}
 async function convertTrial(id){
   const freq=prompt("Frequenza: 1 oppure 2 volte a settimana?","1");if(!freq)return;
