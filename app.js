@@ -1,4 +1,4 @@
-const CONFIG={VERSION:"0.5.1",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec"};
+const CONFIG={VERSION:"0.5.2",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec"};
 const now=new Date();
 const state={view:"home",today:null,trials:[],members:[],payments:[],dashboard:null,monthYear:now.getFullYear(),monthIndex:now.getMonth(),selectedDate:null};
 const $=s=>document.querySelector(s),viewEl=$("#view"),titleEl=$("#pageTitle"),toastEl=$("#toast");
@@ -247,7 +247,7 @@ function openAddPresence(){
   if(!key)return;
   const current=new Set(expectedMembersForSelectedDate(key).map(x=>x.id));
   const candidates=(state.members||[]).filter(m=>(m.status||"Attivo")==="Attivo"&&!current.has(m.id));
-  const cards=candidates.length?candidates.map(m=>'<button class="presence-pick" onclick="addExtraPresence(\\''+esc(m.id)+'\\')"><span class="avatar">'+initials(m.name)+'</span><span><strong>'+esc(m.name)+'</strong><small>'+esc(m.frequency||"Frequenza non impostata")+'</small></span><span class="plus">+</span></button>').join(""):'<div class="empty">Tutti gli iscritti attivi sono già previsti in questa lezione.</div>';
+  const cards=candidates.length?candidates.map(m=>'<button class="presence-pick" onclick="addExtraPresence(\''+esc(m.id)+'\')"><span class="avatar">'+initials(m.name)+'</span><span><strong>'+esc(m.name)+'</strong><small>'+esc(m.frequency||"Frequenza non impostata")+'</small></span><span class="plus">+</span></button>').join(""):'<div class="empty">Tutti gli iscritti attivi sono già previsti in questa lezione.</div>';
   const html='<div class="modal-backdrop" id="presenceModal"><div class="member-modal">'+
     '<div class="modal-header"><div><div class="eyebrow">PRESENZA EXTRA</div><h2>'+esc(fmtDate(key))+'</h2></div><button class="modal-close" onclick="closePresenceModal()">×</button></div>'+
     '<input class="search" placeholder="Cerca iscritto…" oninput="filterPresencePicks(this.value)">'+
@@ -293,7 +293,7 @@ function convertTrial(id){
   document.body.insertAdjacentHTML("beforeend",html);
 }
 function trialChoiceGroup(label,group,items,selected){
-  return '<div class="choice-section"><div class="field-label">'+label+'</div><div class="choice-grid">'+items.map(x=>'<button type="button" class="choice-btn '+(x[0]===selected?"selected":"")+'" data-trial-group="'+group+'" onclick="chooseTrialOption(\\''+group+'\\',\\''+x[0]+'\\',this)">'+x[1]+'</button>').join("")+'</div></div>';
+  return '<div class="choice-section"><div class="field-label">'+label+'</div><div class="choice-grid">'+items.map(x=>'<button type="button" class="choice-btn '+(x[0]===selected?"selected":"")+'" data-trial-group="'+group+'" onclick="chooseTrialOption(\''+group+'\',\''+x[0]+'\',this)">'+x[1]+'</button>').join("")+'</div></div>';
 }
 function chooseTrialOption(group,value,btn){
   trialDraft[group]=value;
