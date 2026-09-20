@@ -1,4 +1,4 @@
-const CONFIG={VERSION:"0.4.2",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec"};
+const CONFIG={VERSION:"0.4.3",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec"};
 const now=new Date();
 const state={view:"home",today:null,trials:[],members:[],payments:[],dashboard:null,monthYear:now.getFullYear(),monthIndex:now.getMonth(),selectedDate:null};
 const $=s=>document.querySelector(s),viewEl=$("#view"),titleEl=$("#pageTitle"),toastEl=$("#toast");
@@ -213,11 +213,12 @@ async function confirmLesson(){
   toast("Lezione confermata · salvataggio in corso");
   try{
     await Promise.all(absent.map(x=>forceAbsent(x.entity,x.type,key)));
+    await api("closeLesson",{lessonDate:key});
     toast("Lezione confermata");
   }catch(e){
     setLessonConfirmed(key,false);
     renderHome();
-    toast("Errore nel salvataggio delle assenze: "+e.message);
+    toast("Errore nella conferma della lezione: "+e.message);
   }
 }
 async function markTrial(id,status){try{await api("setTrialStatus",{bookingId:id,status});toast(status);await loadAll()}catch(e){toast(e.message)}}
