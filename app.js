@@ -1,4 +1,4 @@
-const CONFIG={VERSION:"0.3.0",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec"};
+const CONFIG={VERSION:"0.3.1",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec"};
 const now=new Date();
 const state={view:"home",today:null,trials:[],members:[],payments:[],dashboard:null,monthYear:now.getFullYear(),monthIndex:now.getMonth(),selectedDate:null};
 const $=s=>document.querySelector(s),viewEl=$("#view"),titleEl=$("#pageTitle"),toastEl=$("#toast");
@@ -68,22 +68,35 @@ function calendarHtml(){
   html+='</div>';
   return html;
 }
+function expectedMembersForSelectedDate(key){
+  const d=new Date(key+"T12:00:00");
+  const day=d.getDay();
+  return (state.members||[]).filter(m=>{
+    if((m.status||"Attivo")!=="Attivo")return false;
+    const f=String(m.frequency||"").toLowerCase();
+    if(f.includes("2"))return true;
+    if(day===2 && (f.includes("martedì")||f.includes("martedi")))return true;
+    if(day===4 && (f.includes("giovedì")||f.includes("giovedi")))return true;
+    return false;
+  });
+}
 function lessonDetail(){
   const key=state.selectedDate;
   if(!key)return "";
-  const d=new Date(key+"T12:00:00"),trials=trialsFor(key),isToday=key===todayKey()&&state.today;
-  let html='<section class="section"><div class="card"><div class="card-row"><div><div class="card-title">'+esc(fmtDate(key))+'</div><div class="card-sub">19:00–20:30 · '+trials.length+' prove prenotate</div></div><span class="badge ok">LEZIONE</span></div></div>';
-  if(trials.length){
-    html+='<div class="section-head"><h2>Prove prenotate</h2><span class="badge trial">'+trials.length+'</span></div>';
-    html+=trials.map(t=>'<div class="card"><div class="card-title">'+esc(t.name)+'</div><div class="card-sub">'+(t.age||"—")+' anni · '+esc(t.status||"Prenotato")+'</div></div>').join("");
-  }
+  const trials=trialsFor(key);
+  const members=expectedMembersForSelectedDate(key);
+  const isToday=key===todayKey()&&state.today;
   if(isToday){
-    const members=state.today.members||[],todaysTrials=state.today.trials||[];
-    html+=personSection("ISCRITTI PREVISTI",members,false)+personSection("IN PROVA",todaysTrials,true);
-    html+='<div class="empty warning-box">La chiusura automatica della lezione è temporaneamente disattivata finché assegniamo correttamente martedì/giovedì agli iscritti 1× settimana.</div>';
-  } else {
-    html+='<div class="empty">Puoi consultare la lezione in anticipo. Le presenze verranno gestite dalla Home il giorno della lezione.</div>';
+    const todayById=new Map((state.today.members||[]).map(x=>[x.id,x]));
+    members.forEach(m=>{if(todayById.has(m.id))m.present=!!todayById.get(m.id).present});
   }
+  let html='<section class="section"><div class="card"><div class="card-row"><div><div class="card-title">'+esc(fmtDate(key))+'</div><div class="card-sub">19:00–20:30 · '+members.length+' iscritti previsti · '+trials.length+' prove</div></div><span class="badge ok">LEZIONE</span></div></div>';
+  html+=personSection("ISCRITTI PREVISTI",members,false);
+  if(trials.length){
+    html+='<div class="section-head"><h2>IN PROVA</h2><span class="badge trial">'+trials.length+'</span></div>';
+    html+=trials.map(t=>'<button class="person '+(t.present?"present":"")+'" onclick="togglePresence(\''+esc(t.id)+'\',\'trial\')"><span class="avatar">'+initials(t.name)+'</span><span class="person-main"><span class="person-name">'+esc(t.name)+'</span><span class="person-sub">'+(t.age||"—")+' anni · PROVA</span></span><span class="tick">✓</span></button>').join("");
+  }
+  html+='<div class="empty warning-box">Tocca un nome per registrare la presenza sulla data selezionata. La chiusura automatica resta disattivata finché completiamo la gestione degli iscritti 1× settimana.</div>';
   return html+'</section>';
 }
 function personSection(title,list,trial){
@@ -130,7 +143,16 @@ async function loadAll(){viewEl.innerHTML='<div class="skeleton"></div>';try{if(
 function render(){document.querySelectorAll(".nav-item").forEach(b=>b.classList.toggle("active",b.dataset.view===state.view));({home:renderHome,trials:renderTrials,members:renderMembers,payments:renderPayments,dashboard:renderDashboard}[state.view])()}
 document.querySelectorAll(".nav-item").forEach(b=>b.addEventListener("click",()=>{state.view=b.dataset.view;render()}));$("#syncBtn").addEventListener("click",loadAll);
 
-async function togglePresence(id,type){try{const p=type==="trial"?state.trials.find(x=>x.id===id):state.members.find(x=>x.id===id);await api("togglePresence",{id,personId:type==="trial"?(p?.personId||id):id,type,lessonDate:todayKey()});await loadAll()}catch(e){toast(e.message)}}
+async function togglePresence(id,type){
+  try{
+    const p=type==="trial"?state.trials.find(x=>x.id===id):state.members.find(x=>x.id===id);
+    const lessonDate=state.selectedDate||todayKey();
+    await api("togglePresence",{id,personId:type==="trial"?(p?.personId||id):id,type,lessonDate});
+    if(p)p.present=!p.present;
+    toast((p?.present?"Presente":"Assente")+" · "+fmtDate(lessonDate));
+    renderHome();
+  }catch(e){toast(e.message)}
+}
 async function markTrial(id,status){try{await api("setTrialStatus",{bookingId:id,status});toast(status);await loadAll()}catch(e){toast(e.message)}}
 async function convertTrial(id){
   const freq=prompt("Frequenza: 1 oppure 2 volte a settimana?","1");if(!freq)return;
