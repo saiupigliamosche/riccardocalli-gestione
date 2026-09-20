@@ -133,3 +133,21 @@ select,input{width:100%;padding:13px;border:1px solid var(--line);border-radius:
 .trial-count{display:block;font-size:8px;font-weight:800;margin-top:5px;line-height:1.05}
 .warning-box{background:#fff7e7;border-style:solid;border-color:#ead6ae;color:#755a22;text-align:left}
 @media(max-width:420px){.day{min-height:53px;padding:5px}.trial-count{font-size:7px}}
+
+.modal-backdrop{position:fixed;inset:0;z-index:100;background:rgba(15,25,22,.45);display:flex;align-items:flex-end;justify-content:center;padding:12px}
+.member-modal{width:min(100%,620px);max-height:92vh;overflow:auto;background:var(--bg);border-radius:24px 24px 18px 18px;padding:18px;box-shadow:0 -12px 40px rgba(0,0,0,.18)}
+.modal-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px}
+.modal-header h2{font-size:24px;margin:3px 0 0}
+.modal-close{width:40px;height:40px;border:1px solid var(--line);border-radius:50%;background:#fff;font-size:28px;line-height:1;color:var(--brand)}
+.field-label{display:block;font-size:12px;font-weight:800;color:var(--muted);margin:14px 0 6px;text-transform:uppercase;letter-spacing:.05em}
+.big-input,.big-select{width:100%;padding:15px 16px;border:1px solid var(--line);border-radius:15px;background:#fff;font-size:17px}
+.choice-section{margin-top:12px}
+.choice-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.choice-btn{border:1px solid var(--line);background:#fff;color:var(--brand);border-radius:14px;padding:13px 10px;font-weight:800}
+.choice-btn.selected{background:var(--brand);color:#fff;border-color:var(--brand)}
+.modal-save{margin-top:18px}
+.confirm-lesson-btn.confirmed{background:var(--ok)}
+.attendance-hint{margin-top:10px;padding:16px;text-align:left;background:#eef4f1;border-style:solid;border-color:#d8e5df}
+.person{transition:background-color .08s ease,border-color .08s ease,transform .06s ease}
+.person:active{transform:scale(.99)}
+@media(min-width:720px){.modal-backdrop{align-items:center}.member-modal{border-radius:24px}}
