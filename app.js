@@ -1,9 +1,17 @@
-const CONFIG={VERSION:"0.4.3",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec"};
+const CONFIG={VERSION:"0.4.4",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec"};
 const now=new Date();
 const state={view:"home",today:null,trials:[],members:[],payments:[],dashboard:null,monthYear:now.getFullYear(),monthIndex:now.getMonth(),selectedDate:null};
 const $=s=>document.querySelector(s),viewEl=$("#view"),titleEl=$("#pageTitle"),toastEl=$("#toast");
 const backend=()=>localStorage.getItem("parkour_admin_endpoint")||CONFIG.DEFAULT_API;
 const token=()=>localStorage.getItem("parkour_admin_token")||"";
+(function cleanupTestState(){
+  try{
+    const a=JSON.parse(localStorage.getItem("parkour_attendance_cache")||"{}");
+    if(a["2026-09-22"]){delete a["2026-09-22"];localStorage.setItem("parkour_attendance_cache",JSON.stringify(a))}
+    const l=JSON.parse(localStorage.getItem("parkour_confirmed_lessons")||"{}");
+    if(l["2026-09-22"]){delete l["2026-09-22"];localStorage.setItem("parkour_confirmed_lessons",JSON.stringify(l))}
+  }catch(_){}
+})();
 
 function toast(m){toastEl.textContent=m;toastEl.hidden=false;setTimeout(()=>toastEl.hidden=true,2300)}
 function esc(s=""){return String(s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[m]))}
