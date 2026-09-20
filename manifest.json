@@ -1,0 +1,11 @@
+{
+  "name":"Gestione Corso Parkour",
+  "short_name":"Corso Parkour",
+  "description":"Gestionale mobile del corso Parkour di Riccardo Calli",
+  "start_url":"./",
+  "display":"standalone",
+  "background_color":"#f4f5f1",
+  "theme_color":"#17352e",
+  "lang":"it-IT",
+  "orientation":"portrait-primary"
+}
