@@ -1,7 +1,7 @@
-const CONFIG={VERSION:"0.2.0",OWNER:"riccardo.calli@gmail.com"};
+const CONFIG={VERSION:"0.2.1",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec"};
 const state={view:"today",today:null,trials:[],members:[],payments:[],dashboard:null};
 const $=s=>document.querySelector(s),viewEl=$("#view"),titleEl=$("#pageTitle"),toastEl=$("#toast");
-const backend=()=>localStorage.getItem("parkour_admin_endpoint")||"";
+const backend=()=>localStorage.getItem("parkour_admin_endpoint")||CONFIG.DEFAULT_API;
 const token=()=>localStorage.getItem("parkour_admin_token")||"";
 
 function toast(m){toastEl.textContent=m;toastEl.hidden=false;setTimeout(()=>toastEl.hidden=true,2300)}
@@ -18,11 +18,8 @@ async function api(action,data={}){
   return out.data??out;
 }
 function connectBackend(){
-  const ep=prompt("Incolla l'URL del Web App Apps Script:",backend());
-  if(!ep)return;
   const tk=prompt("Incolla il token amministratore:",token());
   if(!tk)return;
-  localStorage.setItem("parkour_admin_endpoint",ep.trim());
   localStorage.setItem("parkour_admin_token",tk.trim());
   loadAll();
 }
@@ -35,7 +32,7 @@ function disconnectBackend(){
   }
 }
 function connectionCard(){
-  return '<div class="hero"><div class="date">PWA PRONTA</div><div class="time">Collega il backend</div><div class="meta">Endpoint e token restano salvati solo su questo dispositivo.</div></div><div class="actions"><button class="primary" onclick="connectBackend()">COLLEGA BACKEND</button></div>';
+  return '<div class="hero"><div class="date">PWA PRONTA</div><div class="time">Collega il backend</div><div class="meta">L'endpoint è già configurato. Il token resta salvato solo su questo dispositivo.</div></div><div class="actions"><button class="primary" onclick="connectBackend()">COLLEGA BACKEND</button></div>';
 }
 function personSection(title,list,trial){
   return '<section class="section"><div class="section-head"><h2>'+title+'</h2><span class="badge '+(trial?"trial":"ok")+'">'+list.length+'</span></div><div class="person-list">'+
