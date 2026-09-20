@@ -1,4 +1,4 @@
-const CONFIG={VERSION:"0.4.4",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec"};
+const CONFIG={VERSION:"0.5.0",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec"};
 const now=new Date();
 const state={view:"home",today:null,trials:[],members:[],payments:[],dashboard:null,monthYear:now.getFullYear(),monthIndex:now.getMonth(),selectedDate:null};
 const $=s=>document.querySelector(s),viewEl=$("#view"),titleEl=$("#pageTitle"),toastEl=$("#toast");
@@ -25,6 +25,10 @@ function cachedPresence(date,id){const c=attendanceCache();return c[date]&&Objec
 function setCachedPresence(date,id,value){const c=attendanceCache();c[date]=c[date]||{};c[date][id]=!!value;localStorage.setItem("parkour_attendance_cache",JSON.stringify(c))}
 function confirmedLessons(){try{return JSON.parse(localStorage.getItem("parkour_confirmed_lessons")||"{}")}catch(_){return{}}}
 function setLessonConfirmed(date,value){const c=confirmedLessons();if(value)c[date]=true;else delete c[date];localStorage.setItem("parkour_confirmed_lessons",JSON.stringify(c))}
+function extraAttendance(){try{return JSON.parse(localStorage.getItem("parkour_extra_attendance")||"{}")}catch(_){return{}}}
+function extraIds(date){return extraAttendance()[date]||[]}
+function setExtraId(date,id,on=true){const c=extraAttendance();const s=new Set(c[date]||[]);on?s.add(id):s.delete(id);c[date]=[...s];localStorage.setItem("parkour_extra_attendance",JSON.stringify(c))}
+
 
 
 async function api(action,data={}){
@@ -85,14 +89,16 @@ function calendarHtml(){
 function expectedMembersForSelectedDate(key){
   const d=new Date(key+"T12:00:00");
   const day=d.getDay();
+  const extras=new Set(extraIds(key));
   return (state.members||[]).filter(m=>{
     if((m.status||"Attivo")!=="Attivo")return false;
     const f=String(m.frequency||"").toLowerCase();
-    if(f.includes("2"))return true;
-    if(day===2 && (f.includes("martedì")||f.includes("martedi")))return true;
-    if(day===4 && (f.includes("giovedì")||f.includes("giovedi")))return true;
-    return false;
+    const scheduled=f.includes("2") ||
+      (day===2 && (f.includes("martedì")||f.includes("martedi"))) ||
+      (day===4 && (f.includes("giovedì")||f.includes("giovedi")));
+    return scheduled||extras.has(m.id);
   }).map(m=>{
+    m.extra=extras.has(m.id);
     const cp=cachedPresence(key,m.id);
     if(cp!==null)m.present=cp;
     return m;
@@ -114,6 +120,7 @@ function lessonDetail(){
     html+='<div class="section-head"><h2>IN PROVA</h2><span class="badge trial">'+trials.length+'</span></div>';
     html+=trials.map(t=>'<button class="person '+(t.present?"present":"")+'" onclick="togglePresence(\''+esc(t.id)+'\',\'trial\')"><span class="avatar">'+initials(t.name)+'</span><span class="person-main"><span class="person-name">'+esc(t.name)+'</span><span class="person-sub">'+(t.age||"—")+' anni · PROVA</span></span><span class="tick">✓</span></button>').join("");
   }
+  html+='<div class="actions"><button class="secondary" onclick="openAddPresence()">+ AGGIUNGI PRESENZA</button></div>';
   const confirmed=!!confirmedLessons()[key];
   const totalPeople=members.length+trials.length;
   const presentCount=[...members,...trials].filter(x=>x.present).length;
@@ -125,7 +132,7 @@ function lessonDetail(){
 }
 function personSection(title,list,trial){
   return '<section class="section"><div class="section-head"><h2>'+title+'</h2><span class="badge '+(trial?"trial":"ok")+'">'+list.length+'</span></div><div class="person-list">'+
-  (list.length?list.map(p=>'<button class="person '+(p.present?"present":"")+'" onclick="togglePresence(\''+esc(p.id)+'\',\''+(trial?"trial":"member")+'\')"><span class="avatar">'+initials(p.name)+'</span><span class="person-main"><span class="person-name">'+esc(p.name)+'</span><span class="person-sub">'+(trial?((p.age||"—")+" anni · PROVA"):esc(p.plan||"Iscritto"))+'</span></span><span class="tick">✓</span></button>').join(""):'<div class="empty">Nessuna persona.</div>')+
+  (list.length?list.map(p=>'<button class="person '+(p.present?"present":"")+'" onclick="togglePresence(\''+esc(p.id)+'\',\''+(trial?"trial":"member")+'\')"><span class="avatar">'+initials(p.name)+'</span><span class="person-main"><span class="person-name">'+esc(p.name)+'</span><span class="person-sub">'+(trial?((p.age||"—")+" anni · PROVA"):esc((p.plan||"Iscritto")+(p.extra?" · EXTRA":"")))+'</span></span><span class="tick">✓</span></button>').join(""):'<div class="empty">Nessuna persona.</div>')+
   '</div></section>';
 }
 function renderHome(){
@@ -140,7 +147,13 @@ function renderTrials(){
   if(!backend()||!token()){viewEl.innerHTML=connectionCard();return}
   const rows=state.trials||[];
   viewEl.innerHTML='<input class="search" placeholder="Cerca una prova…" oninput="filterCards(this.value,\'trialCard\')"><div class="section-head"><h2>Prossime e da gestire</h2><span class="badge trial">'+rows.length+'</span></div>'+
-  (rows.length?rows.map(p=>'<div class="card trialCard" data-search="'+esc((p.name||"").toLowerCase())+'"><div class="card-row"><div><div class="card-title">'+esc(p.name)+'</div><div class="card-sub">'+(p.age||"—")+' anni · '+fmtDate(p.date)+'</div></div><span class="badge '+(p.status==="Presentato"?"ok":"trial")+'">'+esc(p.status||"Prenotato")+'</span></div><div class="actions grid2"><button class="primary" onclick="convertTrial(\''+esc(p.id)+'\')">ISCRIVI</button><button class="secondary" onclick="markTrial(\''+esc(p.id)+'\',\'Non interessato\')">NON INTERESSATO</button></div></div>').join(""):'<div class="empty">Nessuna prova da gestire.</div>');
+  (rows.length?rows.map(p=>{
+    const converted=p.status==="Iscritto";
+    const actions=converted
+      ? '<div class="empty compact-note">Conversione completata</div>'
+      : '<div class="actions grid2"><button class="primary" onclick="convertTrial(\''+esc(p.id)+'\')">ISCRIVI</button><button class="secondary" onclick="markTrial(\''+esc(p.id)+'\',\'Non interessato\')">NON INTERESSATO</button></div>';
+    return '<div class="card trialCard" data-search="'+esc((p.name||"").toLowerCase())+'"><div class="card-row"><div><div class="card-title">'+esc(p.name)+'</div><div class="card-sub">'+(p.age||"—")+' anni · '+fmtDate(p.date)+'</div></div><span class="badge '+(converted||p.status==="Presentato"?"ok":"trial")+'">'+esc(p.status||"Prenotato")+'</span></div>'+actions+'</div>';
+  }).join(""):'<div class="empty">Nessuna prova da gestire.</div>');
 }
 function renderMembers(){
   titleEl.textContent="Iscritti";
@@ -229,14 +242,93 @@ async function confirmLesson(){
     toast("Errore nella conferma della lezione: "+e.message);
   }
 }
+function openAddPresence(){
+  const key=state.selectedDate;
+  if(!key)return;
+  const current=new Set(expectedMembersForSelectedDate(key).map(x=>x.id));
+  const candidates=(state.members||[]).filter(m=>(m.status||"Attivo")==="Attivo"&&!current.has(m.id));
+  const cards=candidates.length?candidates.map(m=>'<button class="presence-pick" onclick="addExtraPresence(\\''+esc(m.id)+'\\')"><span class="avatar">'+initials(m.name)+'</span><span><strong>'+esc(m.name)+'</strong><small>'+esc(m.frequency||"Frequenza non impostata")+'</small></span><span class="plus">+</span></button>').join(""):'<div class="empty">Tutti gli iscritti attivi sono già previsti in questa lezione.</div>';
+  const html='<div class="modal-backdrop" id="presenceModal"><div class="member-modal">'+
+    '<div class="modal-header"><div><div class="eyebrow">PRESENZA EXTRA</div><h2>'+esc(fmtDate(key))+'</h2></div><button class="modal-close" onclick="closePresenceModal()">×</button></div>'+
+    '<input class="search" placeholder="Cerca iscritto…" oninput="filterPresencePicks(this.value)">'+
+    '<div id="presencePickList">'+cards+'</div>'+
+  '</div></div>';
+  document.body.insertAdjacentHTML("beforeend",html);
+}
+function closePresenceModal(){document.querySelector("#presenceModal")?.remove()}
+function filterPresencePicks(q){q=q.toLowerCase();document.querySelectorAll(".presence-pick").forEach(el=>el.style.display=el.innerText.toLowerCase().includes(q)?"":"none")}
+async function addExtraPresence(id){
+  const p=state.members.find(x=>x.id===id);if(!p)return;
+  const key=state.selectedDate||todayKey();
+  setExtraId(key,id,true);
+  setCachedPresence(key,id,true);
+  p.present=true;p.extra=true;
+  setLessonConfirmed(key,false);
+  closePresenceModal();
+  renderHome();
+  try{
+    await api("setPresence",{id,personId:id,type:"member",lessonDate:key,present:true});
+    toast(p.name+" aggiunto come presenza extra");
+  }catch(e){
+    setExtraId(key,id,false);setCachedPresence(key,id,false);p.present=false;p.extra=false;renderHome();
+    toast("Salvataggio non riuscito: "+e.message);
+  }
+}
 async function markTrial(id,status){try{await api("setTrialStatus",{bookingId:id,status});toast(status);await loadAll()}catch(e){toast(e.message)}}
-async function convertTrial(id){
-  const freq=prompt("Frequenza: 1 oppure 2 volte a settimana?","1");if(!freq)return;
-  let day="Martedì+Giovedì";if(String(freq).trim()==="1"){day=prompt("Giorno abituale: Martedì oppure Giovedì","Martedì");if(!day)return}
-  const plan=prompt("Pacchetto: Mese di prova / Annuale / 3 rate","Annuale");if(!plan)return;
-  const payNow=confirm("Registrare anche un pagamento adesso?");let payment=null;
-  if(payNow){const amount=Number(prompt("Importo in euro:",String(freq).trim()==="2"?"480":"290"));if(!amount)return;const method=prompt("Metodo: Contanti / Bonifico / PayPal / Altro","Contanti")||"Altro";payment={type:plan,amount,method,invoiced:"No"}}
-  try{await api("convertTrial",{bookingId:id,frequency:String(freq)+"x/settimana - "+day,plan,payment});toast("Iscritto creato");await loadAll()}catch(e){toast(e.message)}
+let trialDraft={id:"",frequency:"1",day:"Martedì",plan:"Annuale",payment:"No",method:"Contanti"};
+function convertTrial(id){
+  const p=state.trials.find(x=>x.id===id);
+  if(!p)return;
+  trialDraft={id,frequency:"1",day:"Martedì",plan:"Annuale",payment:"No",method:"Contanti"};
+  const html='<div class="modal-backdrop" id="trialModal"><div class="member-modal">'+
+    '<div class="modal-header"><div><div class="eyebrow">CONVERTI PROVA</div><h2>'+esc(p.name)+'</h2></div><button class="modal-close" onclick="closeTrialModal()">×</button></div>'+
+    trialChoiceGroup("Frequenza","frequency",[["1","1× settimana"],["2","2× settimana"]],"1")+
+    '<div id="trialDayGroup">'+trialChoiceGroup("Giorno","day",[["Martedì","Martedì"],["Giovedì","Giovedì"]],"Martedì")+'</div>'+
+    trialChoiceGroup("Pacchetto","plan",[["Annuale","Annuale"],["3 rate","3 rate"],["Mese di prova","Mese di prova"]],"Annuale")+
+    trialChoiceGroup("Pagamento","payment",[["No","Non pagato"],["Sì","Pagato ora"]],"No")+
+    '<div id="trialMethodGroup" style="display:none">'+trialChoiceGroup("Metodo","method",[["Contanti","Contanti"],["Bonifico","Bonifico"],["PayPal","PayPal"],["Altro","Altro"]],"Contanti")+'</div>'+
+    '<div id="trialAmountNote" class="amount-note">Importo se pagato ora: '+money(trialAmount())+'</div>'+
+    '<button class="primary trial-save" onclick="saveTrialConversion()">SALVA ISCRIZIONE</button>'+
+  '</div></div>';
+  document.body.insertAdjacentHTML("beforeend",html);
+}
+function trialChoiceGroup(label,group,items,selected){
+  return '<div class="choice-section"><div class="field-label">'+label+'</div><div class="choice-grid">'+items.map(x=>'<button type="button" class="choice-btn '+(x[0]===selected?"selected":"")+'" data-trial-group="'+group+'" onclick="chooseTrialOption(\\''+group+'\\',\\''+x[0]+'\\',this)">'+x[1]+'</button>').join("")+'</div></div>';
+}
+function chooseTrialOption(group,value,btn){
+  trialDraft[group]=value;
+  document.querySelectorAll('[data-trial-group="'+group+'"]').forEach(x=>x.classList.remove("selected"));
+  btn.classList.add("selected");
+  if(group==="frequency"){
+    const g=document.querySelector("#trialDayGroup");
+    g.style.display=value==="1"?"block":"none";
+    trialDraft.day=value==="1"?"Martedì":"Martedì+Giovedì";
+  }
+  if(group==="payment")document.querySelector("#trialMethodGroup").style.display=value==="Sì"?"block":"none";
+  const n=document.querySelector("#trialAmountNote");if(n)n.textContent="Importo se pagato ora: "+money(trialAmount());
+}
+function trialAmount(){
+  const f=trialDraft.frequency,p=trialDraft.plan;
+  if(p==="Annuale")return f==="2"?480:290;
+  if(p==="3 rate")return f==="2"?165:110;
+  return f==="2"?60:45;
+}
+function closeTrialModal(){document.querySelector("#trialModal")?.remove()}
+async function saveTrialConversion(){
+  const btn=document.querySelector(".trial-save");
+  btn.disabled=true;btn.textContent="SALVATAGGIO…";
+  const frequency=trialDraft.frequency==="2"?"2x/settimana - Martedì+Giovedì":"1x/settimana - "+trialDraft.day;
+  const payment=trialDraft.payment==="Sì"?{type:trialDraft.plan,amount:trialAmount(),method:trialDraft.method,invoiced:"No"}:null;
+  try{
+    await api("convertTrial",{bookingId:trialDraft.id,frequency,plan:trialDraft.plan,payment});
+    closeTrialModal();
+    toast("Iscrizione completata");
+    await loadAll();
+    state.view="trials";render();
+  }catch(e){
+    btn.disabled=false;btn.textContent="SALVA ISCRIZIONE";
+    toast(e.message);
+  }
 }
 let memberDraft={frequency:"2",day:"Martedì+Giovedì",plan:"Annuale",payment:"No",method:"Contanti"};
 function newMember(){
