@@ -1,4 +1,4 @@
-const CONFIG={VERSION:"0.5.0",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec"};
+const CONFIG={VERSION:"0.5.1",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec"};
 const now=new Date();
 const state={view:"home",today:null,trials:[],members:[],payments:[],dashboard:null,monthYear:now.getFullYear(),monthIndex:now.getMonth(),selectedDate:null};
 const $=s=>document.querySelector(s),viewEl=$("#view"),titleEl=$("#pageTitle"),toastEl=$("#toast");
@@ -100,7 +100,7 @@ function expectedMembersForSelectedDate(key){
   }).map(m=>{
     m.extra=extras.has(m.id);
     const cp=cachedPresence(key,m.id);
-    if(cp!==null)m.present=cp;
+    m.present=cp!==null?cp:false;
     return m;
   });
 }
