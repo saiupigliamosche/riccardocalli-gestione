@@ -168,3 +168,9 @@ select,input{width:100%;padding:13px;border:1px solid var(--line);border-radius:
 .presence-pick small{font-size:11px;color:var(--muted);margin-top:2px}
 .presence-pick .plus{font-size:24px;font-weight:800}
 .compact-note{padding:12px;margin-top:12px}
+
+.detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:12px}
+.detail-item{background:#fff;border:1px solid var(--line);border-radius:14px;padding:12px}
+.detail-item.wide{grid-column:1/-1}
+.detail-item span{display:block;font-size:10px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px}
+.detail-item strong{display:block;color:var(--brand);font-size:14px;overflow-wrap:anywhere}
