@@ -1,6 +1,6 @@
 {
-  "name":"Gestione Corso Parkour",
-  "short_name":"Corso Parkour",
+  "name":"Corso Parkour Padova",
+  "short_name":"Parkour Padova",
   "description":"Gestionale mobile del corso Parkour di Riccardo Calli",
   "start_url":"./",
   "display":"standalone",
