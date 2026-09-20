@@ -116,3 +116,20 @@ select,input{width:100%;padding:13px;border:1px solid var(--line);border-radius:
 .skeleton{height:64px;border-radius:14px;background:linear-gradient(90deg,#ecefec 25%,#f7f8f6 50%,#ecefec 75%);background-size:200% 100%;animation:shimmer 1.5s infinite}
 @keyframes shimmer{to{background-position:-200% 0}}
 @media(min-width:720px){.view{padding-top:24px}.bottom-nav{left:50%;transform:translateX(-50%);max-width:760px;border:1px solid var(--line);border-bottom:0;border-radius:18px 18px 0 0}}
+
+.calendar-card{background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:14px;margin-bottom:14px}
+.calendar-head{display:grid;grid-template-columns:44px 1fr 44px;align-items:center;text-align:center;margin-bottom:12px}
+.calendar-head strong{text-transform:capitalize;font-size:18px}
+.cal-nav{height:40px;border:1px solid var(--line);background:white;border-radius:12px;font-size:26px;color:var(--brand)}
+.weekdays,.month-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+.weekdays span{text-align:center;font-size:10px;font-weight:800;color:var(--muted);padding:4px 0}
+.day{position:relative;min-height:58px;border:0;border-radius:12px;background:transparent;padding:6px;color:#a0a8a4;text-align:left}
+.day.lesson{background:#eaf1ee;color:var(--brand);border:1px solid #d6e0dc}
+.day.lesson.selected{background:var(--brand);color:white}
+.day.today{outline:2px solid #9fb8ae}
+.day.blank{visibility:hidden}
+.daynum{font-size:13px;font-weight:800}
+.lesson-dot{display:block;width:6px;height:6px;border-radius:50%;background:currentColor;margin-top:4px}
+.trial-count{display:block;font-size:8px;font-weight:800;margin-top:5px;line-height:1.05}
+.warning-box{background:#fff7e7;border-style:solid;border-color:#ead6ae;color:#755a22;text-align:left}
+@media(max-width:420px){.day{min-height:53px;padding:5px}.trial-count{font-size:7px}}
