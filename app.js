@@ -1,4 +1,4 @@
-const CONFIG={VERSION:"0.5.4",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec"};
+const CONFIG={VERSION:"0.5.5",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec"};
 const now=new Date();
 const state={view:"home",today:null,trials:[],members:[],payments:[],dashboard:null,monthYear:now.getFullYear(),monthIndex:now.getMonth(),selectedDate:null};
 const $=s=>document.querySelector(s),viewEl=$("#view"),titleEl=$("#pageTitle"),toastEl=$("#toast");
@@ -125,7 +125,7 @@ function lessonDetail(){
     const todayById=new Map((state.today.members||[]).map(x=>[x.id,x]));
     members.forEach(m=>{if(todayById.has(m.id))m.present=!!todayById.get(m.id).present});
   }
-  let html='<section class="section"><div class="card"><div class="card-row"><div><div class="card-title">'+esc(fmtDate(key))+'</div><div class="card-sub">19:00–20:30 · '+members.length+' iscritti previsti · '+trials.length+' prove</div></div><span class="badge ok">LEZIONE</span></div></div>';
+  let html='<section class="section"><div class="card"><div class="card-row"><div><div class="card-title">'+esc(fmtDate(key))+'</div><div class="card-sub">19:00–20:30 · La Cittadella della Stanga · '+members.length+' iscritti previsti · '+trials.length+' prove</div><div class="card-sub"><a href="https://maps.app.goo.gl/G5zFoprsZqDC37xw6" target="_blank" rel="noopener">Apri su Google Maps</a></div></div><span class="badge ok">LEZIONE</span></div></div>';
   html+=personSection("ISCRITTI PREVISTI",members,false);
   if(trials.length){
     html+='<div class="section-head"><h2>IN PROVA</h2><span class="badge trial">'+trials.length+'</span></div>';
