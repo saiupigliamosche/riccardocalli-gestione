@@ -1,4 +1,4 @@
-const CONFIG={VERSION:"0.5.6",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",ENROLLMENT_FORM:"https://form.jotform.com/262643062831050"};
+const CONFIG={VERSION:"0.6.0",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",ENROLLMENT_FORM:"https://form.jotform.com/262643062831050"};
 const now=new Date();
 const state={view:"home",today:null,trials:[],members:[],payments:[],dashboard:null,monthYear:now.getFullYear(),monthIndex:now.getMonth(),selectedDate:null};
 const $=s=>document.querySelector(s),viewEl=$("#view"),titleEl=$("#pageTitle"),toastEl=$("#toast");
@@ -40,6 +40,55 @@ function extraAttendance(){try{return JSON.parse(localStorage.getItem("parkour_e
 function extraIds(date){return extraAttendance()[date]||[]}
 function setExtraId(date,id,on=true){const c=extraAttendance();const s=new Set(c[date]||[]);on?s.add(id):s.delete(id);c[date]=[...s];localStorage.setItem("parkour_extra_attendance",JSON.stringify(c))}
 
+let modalReturnFocus=null;
+function modalShell({id,eyebrow,title,body="",actions="",className=""}){
+  return '<div class="modal-backdrop" id="'+id+'" data-modal-backdrop role="presentation">'+
+    '<section class="app-modal '+className+'" role="dialog" aria-modal="true" aria-labelledby="'+id+'Title" tabindex="-1">'+
+      '<div class="modal-header"><div><div class="eyebrow">'+esc(eyebrow)+'</div><h2 id="'+id+'Title">'+title+'</h2></div><button type="button" class="modal-close" data-modal-close aria-label="Chiudi">×</button></div>'+
+      '<div class="modal-body">'+body+'</div>'+(actions?'<div class="modal-actions">'+actions+'</div>':'')+
+    '</section></div>';
+}
+function openModal(options){
+  closeModal();
+  modalReturnFocus=document.activeElement;
+  document.body.insertAdjacentHTML("beforeend",modalShell(options));
+  document.body.classList.add("modal-open");
+  const backdrop=document.querySelector("#"+options.id),dialog=backdrop.querySelector(".app-modal");
+  backdrop.addEventListener("click",e=>{if(e.target===backdrop&&!options.locked)closeModal(options.id)});
+  backdrop.querySelector("[data-modal-close]").addEventListener("click",()=>closeModal(options.id));
+  dialog.addEventListener("keydown",trapModalFocus);
+  requestAnimationFrame(()=>{
+    backdrop.classList.add("visible");
+    (backdrop.querySelector("[autofocus]")||dialog).focus({preventScroll:true});
+  });
+  return backdrop;
+}
+function closeModal(id){
+  const modal=id?document.querySelector("#"+id):document.querySelector("[data-modal-backdrop]");
+  if(!modal)return;
+  modal.remove();document.body.classList.remove("modal-open");
+  if(modalReturnFocus?.isConnected)modalReturnFocus.focus({preventScroll:true});
+  modalReturnFocus=null;
+}
+function trapModalFocus(e){
+  if(e.key==="Escape"){closeModal(e.currentTarget.closest("[data-modal-backdrop]").id);return}
+  if(e.key!=="Tab")return;
+  const nodes=[...e.currentTarget.querySelectorAll('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),a[href]')];
+  if(!nodes.length)return;
+  const first=nodes[0],last=nodes[nodes.length-1];
+  if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus()}
+  else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus()}
+}
+document.addEventListener("keydown",e=>{if(e.key==="Escape"){const m=document.querySelector("[data-modal-backdrop]");if(m)closeModal(m.id)}});
+function showError(message,title="Operazione non riuscita"){
+  openModal({id:"messageModal",eyebrow:"ERRORE",title:esc(title),body:'<div class="modal-message error-message">'+esc(message)+'</div>',actions:'<button class="primary" onclick="closeModal(\'messageModal\')">CHIUDI</button>'});
+}
+function showConfirm({eyebrow="CONFERMA",title,message,confirmLabel="CONFERMA",danger=false,onConfirm}){
+  window.pendingModalConfirm=onConfirm;
+  openModal({id:"confirmModal",eyebrow,title:esc(title),body:'<div class="modal-message">'+esc(message)+'</div>',actions:'<button class="secondary" onclick="closeModal(\'confirmModal\')">ANNULLA</button><button class="'+(danger?'danger-btn':'primary')+'" onclick="runModalConfirm()">'+esc(confirmLabel)+'</button>'});
+}
+function runModalConfirm(){const fn=window.pendingModalConfirm;window.pendingModalConfirm=null;closeModal("confirmModal");if(fn)fn()}
+
 
 
 async function api(action,data={}){
@@ -51,17 +100,15 @@ async function api(action,data={}){
   return out.data??out;
 }
 function connectBackend(){
-  const tk=prompt("Incolla il token amministratore:",token());
-  if(!tk)return;
-  localStorage.setItem("parkour_admin_token",tk.trim());
-  loadAll();
+  openModal({id:"backendModal",eyebrow:"COLLEGAMENTO",title:"Collega il backend",body:'<label class="field-label" for="adminToken">Token amministratore</label><input id="adminToken" class="big-input" type="password" autocomplete="current-password" value="'+esc(token())+'" placeholder="Incolla il token" autofocus>',actions:'<button class="secondary" onclick="closeModal(\'backendModal\')">ANNULLA</button><button class="primary" onclick="saveBackendToken()">COLLEGA</button>'});
 }
+function saveBackendToken(){const tk=document.querySelector("#adminToken")?.value.trim();if(!tk){showError("Inserisci il token amministratore.");return}localStorage.setItem("parkour_admin_token",tk);closeModal("backendModal");loadAll()}
 function disconnectBackend(){
-  if(confirm("Rimuovere il token da questo dispositivo?")){
+  showConfirm({eyebrow:"SICUREZZA",title:"Disconnetti dispositivo",message:"Il token amministratore verrà rimosso solo da questo dispositivo.",confirmLabel:"DISCONNETTI",danger:true,onConfirm:()=>{
     localStorage.removeItem("parkour_admin_token");
     Object.assign(state,{today:null,trials:[],members:[],payments:[],dashboard:null});
     render();
-  }
+  }});
 }
 function connectionCard(){
   return '<div class="hero"><div class="date">PWA PRONTA</div><div class="time">Collega il backend</div><div class="meta">Endpoint già configurato. Il token resta salvato solo su questo dispositivo.</div></div><div class="actions"><button class="primary" onclick="connectBackend()">COLLEGA BACKEND</button></div>';
@@ -187,7 +234,7 @@ function renderDashboard(){
   viewEl.innerHTML='<div class="grid2">'+m.map(x=>'<div class="kpi"><strong>'+x[1]+'</strong><span>'+x[0]+(x[2]?" · "+x[2]:"")+'</span></div>').join("")+'</div><div class="actions"><button class="secondary" onclick="disconnectBackend()">DISCONNETTI QUESTO DISPOSITIVO</button></div>';
 }
 function filterCards(q,cls){q=q.toLowerCase();document.querySelectorAll("."+cls).forEach(el=>el.style.display=(el.dataset.search||"").includes(q)?"":"none")}
-async function loadAll(){viewEl.innerHTML='<div class="skeleton"></div>';try{if(backend()&&token())Object.assign(state,await api("bootstrap"))}catch(e){toast(e.message)}render()}
+async function loadAll(){viewEl.innerHTML='<div class="skeleton"></div>';try{if(backend()&&token())Object.assign(state,await api("bootstrap"))}catch(e){showError(e.message,"Dati non caricati")}render()}
 function render(){document.querySelectorAll(".nav-item").forEach(b=>b.classList.toggle("active",b.dataset.view===state.view));({home:renderHome,trials:renderTrials,members:renderMembers,payments:renderPayments,dashboard:renderDashboard}[state.view])()}
 document.querySelectorAll(".nav-item").forEach(b=>b.addEventListener("click",()=>{state.view=b.dataset.view;render()}));$("#syncBtn").addEventListener("click",loadAll);
 
@@ -207,7 +254,7 @@ async function togglePresence(id,type){
     p.present=previous;
     setCachedPresence(lessonDate,id,previous);
     renderHome();
-    toast("Salvataggio non riuscito: "+e.message);
+    showError(e.message,"Presenza non salvata");
   }
 }
 async function forceAbsent(entity,type,date){
@@ -223,15 +270,9 @@ function openLessonConfirm(){
   const all=[...members,...trials];
   const present=all.filter(x=>x.present).length;
   const absent=all.length-present;
-  const modal='<div class="modal-backdrop" id="lessonConfirmModal"><div class="confirm-modal">'+
-    '<div class="modal-header"><div><div class="eyebrow">RIEPILOGO LEZIONE</div><h2>'+esc(fmtDate(key))+'</h2></div><button class="modal-close" onclick="closeLessonConfirm()">×</button></div>'+
-    '<div class="confirm-stats"><div><strong>'+present+'</strong><span>Presenti</span></div><div><strong>'+absent+'</strong><span>Assenti</span></div><div><strong>'+all.length+'</strong><span>Previsti</span></div></div>'+
-    '<div class="confirm-copy">Confermando, chi non è selezionato verrà registrato come assente.</div>'+
-    '<div class="confirm-actions"><button class="secondary" onclick="closeLessonConfirm()">ANNULLA</button><button class="primary" onclick="confirmLesson()">CONFERMA</button></div>'+
-  '</div></div>';
-  document.body.insertAdjacentHTML("beforeend",modal);
+  openModal({id:"lessonConfirmModal",eyebrow:"RIEPILOGO LEZIONE",title:esc(fmtDate(key)),body:'<div class="confirm-stats"><div><strong>'+present+'</strong><span>Presenti</span></div><div><strong>'+absent+'</strong><span>Assenti</span></div><div><strong>'+all.length+'</strong><span>Previsti</span></div></div><div class="modal-message">Confermando, chi non è selezionato verrà registrato come assente.</div>',actions:'<button class="secondary" onclick="closeLessonConfirm()">ANNULLA</button><button class="primary" onclick="confirmLesson()">CONFERMA</button>'});
 }
-function closeLessonConfirm(){document.querySelector("#lessonConfirmModal")?.remove()}
+function closeLessonConfirm(){closeModal("lessonConfirmModal")}
 async function confirmLesson(){
   const key=state.selectedDate;
   if(!key)return;
@@ -250,7 +291,7 @@ async function confirmLesson(){
   }catch(e){
     setLessonConfirmed(key,false);
     renderHome();
-    toast("Errore nella conferma della lezione: "+e.message);
+    showError(e.message,"Lezione non confermata");
   }
 }
 function openAddPresence(){
@@ -259,14 +300,9 @@ function openAddPresence(){
   const current=new Set(expectedMembersForSelectedDate(key).map(x=>x.id));
   const candidates=(state.members||[]).filter(m=>(m.status||"Attivo")==="Attivo"&&!current.has(m.id));
   const cards=candidates.length?candidates.map(m=>'<button class="presence-pick" onclick="addExtraPresence(\''+esc(m.id)+'\')"><span class="avatar">'+initials(m.name)+'</span><span><strong>'+esc(m.name)+'</strong><small>'+esc(m.frequency||"Frequenza non impostata")+'</small></span><span class="plus">+</span></button>').join(""):'<div class="empty">Tutti gli iscritti attivi sono già previsti in questa lezione.</div>';
-  const html='<div class="modal-backdrop" id="presenceModal"><div class="member-modal">'+
-    '<div class="modal-header"><div><div class="eyebrow">PRESENZA EXTRA</div><h2>'+esc(fmtDate(key))+'</h2></div><button class="modal-close" onclick="closePresenceModal()">×</button></div>'+
-    '<input class="search" placeholder="Cerca iscritto…" oninput="filterPresencePicks(this.value)">'+
-    '<div id="presencePickList">'+cards+'</div>'+
-  '</div></div>';
-  document.body.insertAdjacentHTML("beforeend",html);
+  openModal({id:"presenceModal",eyebrow:"PRESENZA EXTRA",title:esc(fmtDate(key)),body:'<input class="search modal-search" placeholder="Cerca iscritto…" oninput="filterPresencePicks(this.value)" autofocus><div id="presencePickList">'+cards+'</div>'});
 }
-function closePresenceModal(){document.querySelector("#presenceModal")?.remove()}
+function closePresenceModal(){closeModal("presenceModal")}
 function filterPresencePicks(q){q=q.toLowerCase();document.querySelectorAll(".presence-pick").forEach(el=>el.style.display=el.innerText.toLowerCase().includes(q)?"":"none")}
 async function addExtraPresence(id){
   const p=state.members.find(x=>x.id===id);if(!p)return;
@@ -282,7 +318,7 @@ async function addExtraPresence(id){
     toast(p.name+" aggiunto come presenza extra");
   }catch(e){
     setExtraId(key,id,false);setCachedPresence(key,id,false);p.present=false;p.extra=false;renderHome();
-    toast("Salvataggio non riuscito: "+e.message);
+    showError(e.message,"Presenza non salvata");
   }
 }
 async function shareEnrollmentForm(id){
@@ -303,23 +339,22 @@ async function shareEnrollmentForm(id){
     }
   }
 }
-async function markTrial(id,status){try{await api("setTrialStatus",{bookingId:id,status});toast(status);await loadAll()}catch(e){toast(e.message)}}
+function markTrial(id,status){
+  const p=state.trials.find(x=>x.id===id);if(!p)return;
+  showConfirm({eyebrow:"AGGIORNA PROVA",title:"Segna come non interessato",message:p.name+" non comparirà più tra le prove da gestire.",confirmLabel:"CONFERMA",danger:true,onConfirm:async()=>{try{await api("setTrialStatus",{bookingId:id,status});toast(status);await loadAll()}catch(e){showError(e.message,"Stato non aggiornato")}}});
+}
 let trialDraft={id:"",frequency:"1",day:"Martedì",plan:"Annuale",payment:"No",method:"Contanti"};
 function convertTrial(id){
   const p=state.trials.find(x=>x.id===id);
   if(!p)return;
   trialDraft={id,frequency:"1",day:"Martedì",plan:"Annuale",payment:"No",method:"Contanti"};
-  const html='<div class="modal-backdrop" id="trialModal"><div class="member-modal">'+
-    '<div class="modal-header"><div><div class="eyebrow">CONVERTI PROVA</div><h2>'+esc(p.name)+'</h2></div><button class="modal-close" onclick="closeTrialModal()">×</button></div>'+
-    trialChoiceGroup("Frequenza","frequency",[["1","1× settimana"],["2","2× settimana"]],"1")+
+  const body=trialChoiceGroup("Frequenza","frequency",[["1","1× settimana"],["2","2× settimana"]],"1")+
     '<div id="trialDayGroup">'+trialChoiceGroup("Giorno","day",[["Martedì","Martedì"],["Giovedì","Giovedì"]],"Martedì")+'</div>'+
     trialChoiceGroup("Pacchetto","plan",[["Annuale","Annuale"],["3 rate","3 rate"],["Mese di prova","Mese di prova"]],"Annuale")+
     trialChoiceGroup("Pagamento","payment",[["No","Non pagato"],["Sì","Pagato ora"]],"No")+
     '<div id="trialMethodGroup" style="display:none">'+trialChoiceGroup("Metodo","method",[["Contanti","Contanti"],["Bonifico","Bonifico"],["PayPal","PayPal"],["Altro","Altro"]],"Contanti")+'</div>'+
-    '<div id="trialAmountNote" class="amount-note">Importo se pagato ora: '+money(trialAmount())+'</div>'+
-    '<button class="primary trial-save" onclick="saveTrialConversion()">SALVA ISCRIZIONE</button>'+
-  '</div></div>';
-  document.body.insertAdjacentHTML("beforeend",html);
+    '<div id="trialAmountNote" class="amount-note">Importo se pagato ora: '+money(trialAmount())+'</div>';
+  openModal({id:"trialModal",eyebrow:"CONVERTI PROVA",title:esc(p.name),body,actions:'<button class="primary trial-save" onclick="saveTrialConversion()">SALVA ISCRIZIONE</button>'});
 }
 function trialChoiceGroup(label,group,items,selected){
   return '<div class="choice-section"><div class="field-label">'+label+'</div><div class="choice-grid">'+items.map(x=>'<button type="button" class="choice-btn '+(x[0]===selected?"selected":"")+'" data-trial-group="'+group+'" onclick="chooseTrialOption(\''+group+'\',\''+x[0]+'\',this)">'+x[1]+'</button>').join("")+'</div></div>';
@@ -342,7 +377,7 @@ function trialAmount(){
   if(p==="3 rate")return f==="2"?165:110;
   return f==="2"?60:45;
 }
-function closeTrialModal(){document.querySelector("#trialModal")?.remove()}
+function closeTrialModal(){closeModal("trialModal")}
 async function saveTrialConversion(){
   const btn=document.querySelector(".trial-save");
   btn.disabled=true;btn.textContent="SALVATAGGIO…";
@@ -356,26 +391,21 @@ async function saveTrialConversion(){
     state.view="trials";render();
   }catch(e){
     btn.disabled=false;btn.textContent="SALVA ISCRIZIONE";
-    toast(e.message);
+    showError(e.message,"Iscrizione non salvata");
   }
 }
 let memberDraft={frequency:"2",day:"Martedì+Giovedì",plan:"Annuale",payment:"No",method:"Contanti"};
 function newMember(){
   memberDraft={frequency:"2",day:"Martedì+Giovedì",plan:"Annuale",payment:"No",method:"Contanti"};
   const ages=Array.from({length:63},(_,i)=>i+18).map(a=>'<option value="'+a+'">'+a+'</option>').join("");
-  const html='<div class="modal-backdrop" id="memberModal"><div class="member-modal">'+
-    '<div class="modal-header"><div><div class="eyebrow">NUOVO ISCRITTO</div><h2>Aggiungi persona</h2></div><button class="modal-close" onclick="closeMemberModal()">×</button></div>'+
-    '<label class="field-label">Nome e cognome</label><input id="memberName" class="big-input" autocomplete="name" placeholder="Es. Mario Rossi">'+
+  const body='<label class="field-label">Nome e cognome</label><input id="memberName" class="big-input" autocomplete="name" placeholder="Es. Mario Rossi" autofocus>'+
     '<label class="field-label">Età</label><select id="memberAge" class="big-select">'+ages+'</select>'+
     choiceGroup("Frequenza","frequency",[["1","1× settimana"],["2","2× settimana"]],"2")+
     '<div id="memberDayGroup" style="display:none">'+choiceGroup("Giorno","day",[["Martedì","Martedì"],["Giovedì","Giovedì"]],"Martedì")+'</div>'+
     choiceGroup("Pacchetto","plan",[["Annuale","Annuale"],["3 rate","3 rate"],["Mese di prova","Mese di prova"]],"Annuale")+
     choiceGroup("Pagamento","payment",[["No","Non pagato"],["Sì","Pagato ora"]],"No")+
-    '<div id="memberMethodGroup" style="display:none">'+choiceGroup("Metodo","method",[["Contanti","Contanti"],["Bonifico","Bonifico"],["PayPal","PayPal"],["Altro","Altro"]],"Contanti")+'</div>'+
-    '<button class="primary modal-save" onclick="saveMember()">SALVA ISCRITTO</button>'+
-  '</div></div>';
-  document.body.insertAdjacentHTML("beforeend",html);
-  document.querySelector("#memberName").focus();
+    '<div id="memberMethodGroup" style="display:none">'+choiceGroup("Metodo","method",[["Contanti","Contanti"],["Bonifico","Bonifico"],["PayPal","PayPal"],["Altro","Altro"]],"Contanti")+'</div>';
+  openModal({id:"memberModal",eyebrow:"NUOVO ISCRITTO",title:"Aggiungi persona",body,actions:'<button class="primary modal-save" onclick="saveMember()">SALVA ISCRITTO</button>'});
 }
 function choiceGroup(label,group,items,selected){
   return '<div class="choice-section"><div class="field-label">'+label+'</div><div class="choice-grid">'+items.map(x=>'<button type="button" class="choice-btn '+(x[0]===selected?"selected":"")+'" data-group="'+group+'" data-value="'+x[0]+'" onclick="chooseMemberOption(\''+group+'\',\''+x[0]+'\',this)">'+x[1]+'</button>').join("")+'</div></div>';
@@ -393,7 +423,7 @@ function chooseMemberOption(group,value,btn){
     document.querySelector("#memberMethodGroup").style.display=value==="Sì"?"block":"none";
   }
 }
-function closeMemberModal(){document.querySelector("#memberModal")?.remove()}
+function closeMemberModal(){closeModal("memberModal")}
 function memberAmount(){
   const f=memberDraft.frequency, p=memberDraft.plan;
   if(p==="Annuale")return f==="2"?480:290;
@@ -403,7 +433,7 @@ function memberAmount(){
 async function saveMember(){
   const name=document.querySelector("#memberName").value.trim();
   const age=Number(document.querySelector("#memberAge").value);
-  if(!name){toast("Inserisci nome e cognome");return}
+  if(!name){showError("Inserisci nome e cognome.","Dato mancante");return}
   const frequency=memberDraft.frequency==="2"?"2x/settimana - Martedì+Giovedì":"1x/settimana - "+memberDraft.day;
   const saveBtn=document.querySelector(".modal-save");
   saveBtn.disabled=true;saveBtn.textContent="SALVATAGGIO…";
@@ -418,25 +448,39 @@ async function saveMember(){
     state.view="members";render();
   }catch(e){
     saveBtn.disabled=false;saveBtn.textContent="SALVA ISCRITTO";
-    toast(e.message);
+    showError(e.message,"Iscritto non salvato");
   }
 }
-async function newPayment(personId){
-  let member=personId?state.members.find(x=>x.id===personId):null;
-  if(!member){const name=prompt("Nome dell'iscritto:");if(!name)return;member=state.members.find(x=>x.name.toLowerCase().includes(name.toLowerCase()));if(!member){toast("Iscritto non trovato");return}}
-  const amount=Number(prompt("Importo in euro:","110"));if(!amount)return;
-  const type=prompt("Tipo pagamento:","Rata")||"Pagamento";
-  const method=prompt("Metodo: Contanti / Bonifico / PayPal / Altro","Contanti")||"Altro";
-  const installment=prompt("Periodo/Rata (opzionale):","")||"";
-  try{await api("recordPayment",{personId:member.id,name:member.name,type,amount,method,installment,invoiced:"No"});toast("Pagamento registrato");await loadAll()}catch(e){toast(e.message)}
+let paymentDraft={method:"Contanti"};
+function paymentChoiceGroup(items,selected){return '<div class="choice-section"><div class="field-label">Metodo</div><div class="choice-grid">'+items.map(x=>'<button type="button" class="choice-btn '+(x===selected?'selected':'')+'" data-payment-method="'+esc(x)+'" onclick="choosePaymentMethod(\''+x+'\',this)">'+esc(x)+'</button>').join('')+'</div></div>'}
+function choosePaymentMethod(value,btn){paymentDraft.method=value;document.querySelectorAll('[data-payment-method]').forEach(x=>x.classList.remove('selected'));btn.classList.add('selected')}
+function newPayment(personId){
+  paymentDraft={method:"Contanti"};
+  const members=(state.members||[]).filter(x=>(x.status||"Attivo")==="Attivo");
+  const options=members.map(m=>'<option value="'+esc(m.id)+'" '+(m.id===personId?'selected':'')+'>'+esc(m.name)+'</option>').join('');
+  const body='<label class="field-label" for="paymentMember">Iscritto</label><select id="paymentMember" class="big-select" '+(personId?'':'autofocus')+'><option value="">Seleziona una persona</option>'+options+'</select>'+
+    '<label class="field-label" for="paymentAmount">Importo in euro</label><input id="paymentAmount" class="big-input" type="number" min="1" step="0.01" inputmode="decimal" value="110" '+(personId?'autofocus':'')+'>'+
+    '<label class="field-label" for="paymentType">Tipo pagamento</label><input id="paymentType" class="big-input" value="Rata" placeholder="Es. Rata, Annuale, Mese di prova">'+
+    paymentChoiceGroup(["Contanti","Bonifico","PayPal","Altro"],"Contanti")+
+    '<label class="field-label" for="paymentInstallment">Periodo / rata <span class="optional">opzionale</span></label><input id="paymentInstallment" class="big-input" placeholder="Es. Prima rata">';
+  openModal({id:"paymentModal",eyebrow:"PAGAMENTO",title:"Registra pagamento",body,actions:'<button class="secondary" onclick="closeModal(\'paymentModal\')">ANNULLA</button><button class="primary payment-save" onclick="savePayment()">REGISTRA</button>'});
+}
+async function savePayment(){
+  const personId=document.querySelector("#paymentMember")?.value;
+  const member=state.members.find(x=>x.id===personId);
+  const amount=Number(document.querySelector("#paymentAmount")?.value);
+  const type=document.querySelector("#paymentType")?.value.trim()||"Pagamento";
+  const installment=document.querySelector("#paymentInstallment")?.value.trim()||"";
+  if(!member){showError("Seleziona un iscritto.","Dato mancante");return}
+  if(!amount||amount<=0){showError("Inserisci un importo valido.","Dato mancante");return}
+  const btn=document.querySelector(".payment-save");btn.disabled=true;btn.textContent="SALVATAGGIO…";
+  try{await api("recordPayment",{personId:member.id,name:member.name,type,amount,method:paymentDraft.method,installment,invoiced:"No"});closeModal("paymentModal");toast("Pagamento registrato");await loadAll()}catch(e){btn.disabled=false;btn.textContent="REGISTRA";showError(e.message,"Pagamento non registrato")}
 }
 function memberDetail(id){
   const m=state.members.find(x=>x.id===id);
   if(!m)return;
   const value=v=>v&&String(v).trim()?esc(v):"—";
-  const html='<div class="modal-backdrop" id="memberDetailModal"><div class="member-modal">'+
-    '<div class="modal-header"><div><div class="eyebrow">DETTAGLI ISCRITTO</div><h2>'+esc(m.name)+'</h2></div><button class="modal-close" onclick="closeMemberDetail()">×</button></div>'+
-    '<div class="detail-grid">'+
+  const body='<div class="detail-grid">'+
       '<div class="detail-item"><span>Età</span><strong>'+value(m.age)+'</strong></div>'+
       '<div class="detail-item"><span>Stato</span><strong>'+value(m.status)+'</strong></div>'+
       '<div class="detail-item"><span>Pacchetto</span><strong>'+value(m.plan)+'</strong></div>'+
@@ -445,13 +489,35 @@ function memberDetail(id){
       '<div class="detail-item"><span>Rischio drop</span><strong>'+value(m.risk)+'</strong></div>'+
       '<div class="detail-item wide"><span>Telefono</span><strong>'+value(m.phone)+'</strong></div>'+
       '<div class="detail-item wide"><span>Email</span><strong>'+value(m.email)+'</strong></div>'+
-    '</div>'+
-    '<div class="confirm-actions"><button class="primary" onclick="detailPayment(\''+esc(m.id)+'\')">PAGAMENTO</button><button class="secondary" onclick="closeMemberDetail()">CHIUDI</button></div>'+
-  '</div></div>';
-  document.body.insertAdjacentHTML("beforeend",html);
+    '</div>';
+  openModal({id:"memberDetailModal",eyebrow:"DETTAGLI ISCRITTO",title:esc(m.name),body,actions:'<button class="secondary" onclick="editMember(\''+esc(m.id)+'\')">MODIFICA</button><button class="primary" onclick="detailPayment(\''+esc(m.id)+'\')">PAGAMENTO</button>'});
 }
-function closeMemberDetail(){document.querySelector("#memberDetailModal")?.remove()}
+function closeMemberDetail(){closeModal("memberDetailModal")}
 function detailPayment(id){closeMemberDetail();newPayment(id)}
+let editDraft={frequency:"2",day:"Martedì+Giovedì",plan:"Annuale",status:"Attivo"};
+function parseFrequency(value){const f=String(value||"").toLowerCase();if(f.includes("2"))return{frequency:"2",day:"Martedì+Giovedì"};return{frequency:"1",day:f.includes("giov")?"Giovedì":"Martedì"}}
+function editMember(id){
+  const m=state.members.find(x=>x.id===id);if(!m)return;
+  const parsed=parseFrequency(m.frequency);editDraft={id,frequency:parsed.frequency,day:parsed.day,plan:m.plan||"Annuale",status:m.status||"Attivo"};
+  const body='<label class="field-label">Nome e cognome</label><input id="editName" class="big-input" value="'+esc(m.name)+'" autocomplete="name" autofocus>'+
+    '<label class="field-label">Età</label><input id="editAge" class="big-input" type="number" min="18" max="120" inputmode="numeric" value="'+esc(m.age||"")+'">'+
+    '<label class="field-label">Telefono</label><input id="editPhone" class="big-input" type="tel" autocomplete="tel" value="'+esc(m.phone||"")+'">'+
+    '<label class="field-label">Email</label><input id="editEmail" class="big-input" type="email" autocomplete="email" value="'+esc(m.email||"")+'">'+
+    editChoiceGroup("Frequenza","frequency",[["1","1× settimana"],["2","2× settimana"]],editDraft.frequency)+
+    '<div id="editDayGroup" style="display:'+(editDraft.frequency==="1"?'block':'none')+'">'+editChoiceGroup("Giorno","day",[["Martedì","Martedì"],["Giovedì","Giovedì"]],editDraft.day)+'</div>'+
+    editChoiceGroup("Pacchetto","plan",[["Annuale","Annuale"],["3 rate","3 rate"],["Mese di prova","Mese di prova"]],editDraft.plan)+
+    editChoiceGroup("Stato","status",[["Attivo","Attivo"],["Sospeso","Sospeso"],["Uscito","Uscito"]],editDraft.status);
+  openModal({id:"memberEditModal",eyebrow:"MODIFICA ISCRITTO",title:esc(m.name),body,actions:'<button class="secondary" onclick="closeModal(\'memberEditModal\')">ANNULLA</button><button class="primary edit-save" onclick="saveMemberEdit()">SALVA</button>'});
+}
+function editChoiceGroup(label,group,items,selected){return '<div class="choice-section"><div class="field-label">'+label+'</div><div class="choice-grid">'+items.map(x=>'<button type="button" class="choice-btn '+(x[0]===selected?'selected':'')+'" data-edit-group="'+group+'" onclick="chooseEditOption(\''+group+'\',\''+x[0]+'\',this)">'+x[1]+'</button>').join('')+'</div></div>'}
+function chooseEditOption(group,value,btn){editDraft[group]=value;document.querySelectorAll('[data-edit-group="'+group+'"]').forEach(x=>x.classList.remove('selected'));btn.classList.add('selected');if(group==="frequency"){document.querySelector("#editDayGroup").style.display=value==="1"?"block":"none";editDraft.day=value==="1"?"Martedì":"Martedì+Giovedì"}}
+async function saveMemberEdit(){
+  const name=document.querySelector("#editName")?.value.trim(),age=Number(document.querySelector("#editAge")?.value),phone=document.querySelector("#editPhone")?.value.trim(),email=document.querySelector("#editEmail")?.value.trim();
+  if(!name){showError("Inserisci nome e cognome.","Dato mancante");return}
+  const frequency=editDraft.frequency==="2"?"2x/settimana - Martedì+Giovedì":"1x/settimana - "+editDraft.day;
+  const btn=document.querySelector(".edit-save");btn.disabled=true;btn.textContent="SALVATAGGIO…";
+  try{await api("updateMember",{personId:editDraft.id,name,age,phone,email,frequency,plan:editDraft.plan,status:editDraft.status});closeModal("memberEditModal");toast("Dati aggiornati");await loadAll();state.view="members";render()}catch(e){btn.disabled=false;btn.textContent="SALVA";showError(e.message,"Dati non aggiornati")}
+}
 
 if("serviceWorker"in navigator)window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}));
 loadAll();

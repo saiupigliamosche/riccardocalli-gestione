@@ -35,6 +35,7 @@ function doPost(e) {
     if (action === 'setTrialStatus') return json_(setTrialStatus_(data));
     if (action === 'recordPayment') return json_(recordPayment_(data));
     if (action === 'setMemberStatus') return json_(setMemberStatus_(data));
+    if (action === 'updateMember') return json_(updateMember_(data));
     if (action === 'walkIn') return json_(createWalkIn_(data));
 
     return json_({ ok: false, error: 'Azione non valida.' });
@@ -402,6 +403,27 @@ function setMemberStatus_(d) {
       if(status==='Uscito'){const c=headers.indexOf('Data uscita');if(c>=0)sh.getRange(i+1,c+1).setValue(new Date());}
       return {ok:true};
     }
+  }
+  throw new Error('Iscritto non trovato.');
+}
+
+function updateMember_(d) {
+  const id=clean_(d.personId||d.id), name=clean_(d.name);
+  if(!id||!name) throw new Error('Dati iscritto incompleti.');
+  const sh=sheet_(ADMIN.sheets.members), headers=headers_(sh), rows=sh.getDataRange().getValues();
+  const idCol=headers.indexOf('Persona ID');
+  for(let i=1;i<rows.length;i++){
+    if(str_(rows[i][idCol])!==id) continue;
+    setCellByHeader_(sh,i+1,headers,'Nome e cognome',name);
+    setCellByHeader_(sh,i+1,headers,'Età',num_(d.age)||'');
+    setCellByHeader_(sh,i+1,headers,'Telefono',clean_(d.phone));
+    setCellByHeader_(sh,i+1,headers,'Email',clean_(d.email));
+    setCellByHeader_(sh,i+1,headers,'Frequenza',clean_(d.frequency));
+    setCellByHeader_(sh,i+1,headers,'Pacchetto',clean_(d.plan));
+    setCellByHeader_(sh,i+1,headers,'Stato',clean_(d.status)||'Attivo');
+    setCellByHeader_(sh,i+1,headers,'Ultimo aggiornamento',new Date());
+    if(clean_(d.status)==='Uscito') setCellByHeader_(sh,i+1,headers,'Data uscita',new Date());
+    return {ok:true};
   }
   throw new Error('Iscritto non trovato.');
 }
