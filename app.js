@@ -1,4 +1,4 @@
-const CONFIG={VERSION:"0.5.5",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec"};
+const CONFIG={VERSION:"0.5.6",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",ENROLLMENT_FORM:"https://form.jotform.com/262643062831050"};
 const now=new Date();
 const state={view:"home",today:null,trials:[],members:[],payments:[],dashboard:null,monthYear:now.getFullYear(),monthIndex:now.getMonth(),selectedDate:null};
 const $=s=>document.querySelector(s),viewEl=$("#view"),titleEl=$("#pageTitle"),toastEl=$("#toast");
@@ -162,7 +162,7 @@ function renderTrials(){
     const converted=p.status==="Iscritto";
     const actions=converted
       ? '<div class="empty compact-note">Conversione completata</div>'
-      : '<div class="actions grid2"><button class="primary" onclick="convertTrial(\''+esc(p.id)+'\')">ISCRIVI</button><button class="secondary" onclick="markTrial(\''+esc(p.id)+'\',\'Non interessato\')">NON INTERESSATO</button></div>';
+      : '<div class="actions"><button class="primary" onclick="shareEnrollmentForm(\''+esc(p.id)+'\')">INVIA MODULO ISCRIZIONE</button></div><div class="actions grid2"><button class="secondary" onclick="window.open(CONFIG.ENROLLMENT_FORM,\'_blank\',\'noopener\')">APRI MODULO</button><button class="secondary" onclick="convertTrial(\''+esc(p.id)+'\')">ISCRIVI MANUALE</button></div><div class="actions"><button class="secondary" onclick="markTrial(\''+esc(p.id)+'\',\'Non interessato\')">NON INTERESSATO</button></div>';
     return '<div class="card trialCard" data-search="'+esc((p.name||"").toLowerCase())+'"><div class="card-row"><div><div class="card-title">'+esc(p.name)+'</div><div class="card-sub">'+(p.age||"—")+' anni · '+fmtDate(p.date)+'</div></div><span class="badge '+(converted||p.status==="Presentato"?"ok":"trial")+'">'+esc(p.status||"Prenotato")+'</span></div>'+actions+'</div>';
   }).join(""):'<div class="empty">Nessuna prova da gestire.</div>');
 }
@@ -283,6 +283,24 @@ async function addExtraPresence(id){
   }catch(e){
     setExtraId(key,id,false);setCachedPresence(key,id,false);p.present=false;p.extra=false;renderHome();
     toast("Salvataggio non riuscito: "+e.message);
+  }
+}
+async function shareEnrollmentForm(id){
+  const p=state.trials.find(x=>x.id===id);
+  const first=((p?.name||"").trim().split(/\s+/)[0]||"");
+  const text="Ciao"+(first?" "+first:"")+"! Per completare l’iscrizione al corso di Parkour Padova compila e firma questo modulo digitale:";
+  const url=CONFIG.ENROLLMENT_FORM;
+  try{
+    if(navigator.share){
+      await navigator.share({title:"Iscrizione Parkour Padova 2026/27",text,url});
+      return;
+    }
+    await navigator.clipboard.writeText(text+"\n"+url);
+    toast("Messaggio e link copiati");
+  }catch(e){
+    if(e?.name!=="AbortError"){
+      try{await navigator.clipboard.writeText(text+"\n"+url);toast("Messaggio e link copiati")}catch(_){window.open(url,"_blank","noopener")}
+    }
   }
 }
 async function markTrial(id,status){try{await api("setTrialStatus",{bookingId:id,status});toast(status);await loadAll()}catch(e){toast(e.message)}}
