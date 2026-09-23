@@ -14,12 +14,17 @@ const ADMIN = {
 };
 
 function doGet() {
-  return json_({ ok: true, service: 'Parkour Course OS Admin API', version: '1.0.0' });
+  return json_({ ok: true, service: 'Parkour Course OS Admin API', version: '1.2.0' });
 }
 
 function doPost(e) {
   const lock = LockService.getScriptLock();
   try {
+    if (typeof isJotformWebhookRequest_ === 'function' && isJotformWebhookRequest_(e)) {
+      lock.waitLock(10000);
+      return json_(handleJotformWebhook_(e));
+    }
+
     const p = JSON.parse((e && e.postData && e.postData.contents) || '{}');
     authorize_(p.token);
     lock.waitLock(10000);
