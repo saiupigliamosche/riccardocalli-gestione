@@ -3,7 +3,9 @@ const JOTFORM_MODULE_SHEET_ = 'Moduli iscrizione';
 
 function isJotformWebhookRequest_(e) {
   const p = (e && e.parameter) || {};
-  return !!(p.formID && p.submissionID && p.rawRequest);
+  const formId = p.formID || p.formId;
+  const submissionId = p.submissionID || p.submissionId;
+  return !!(formId && submissionId && p.rawRequest);
 }
 
 function handleJotformWebhook_(e) {
@@ -14,11 +16,12 @@ function handleJotformWebhook_(e) {
   if (!expectedSecret || !providedSecret || providedSecret !== expectedSecret) {
     throw new Error('Webhook Jotform non autorizzato.');
   }
-  if (str_(p.formID) !== JOTFORM_FORM_ID_) {
+  const formId = p.formID || p.formId;
+  if (str_(formId) !== JOTFORM_FORM_ID_) {
     throw new Error('Form Jotform non autorizzato.');
   }
 
-  const submissionId = clean_(p.submissionID);
+  const submissionId = clean_(p.submissionID || p.submissionId);
   if (!submissionId) throw new Error('Submission ID mancante.');
 
   let raw = {};
@@ -41,6 +44,7 @@ function handleJotformWebhook_(e) {
     const existingMember = jfFindMemberRow_(payload.name, payload.email, payload.phone, submissionId);
 
     if (moduleExisting && existingMember) {
+      setCellByHeader_(moduleSh, moduleExisting.row, moduleExisting.headers, 'Stato sincronizzazione', jfSyncStatus_(payload));
       return { ok:true, duplicate:true, submissionId:submissionId, personId:str_(existingMember.obj['Persona ID']) };
     }
 
@@ -52,13 +56,15 @@ function handleJotformWebhook_(e) {
     if (trial) {
       setCellByHeader_(trial.sh, trial.row, trial.headers, 'Persona ID', personId);
       setCellByHeader_(trial.sh, trial.row, trial.headers, 'Stato', 'Iscritto');
-      setCellByHeader_(trial.sh, trial.row, trial.headers, 'Data conversione', new Date());
+      if (!trial.obj['Data conversione']) {
+        setCellByHeader_(trial.sh, trial.row, trial.headers, 'Data conversione', new Date());
+      }
     }
 
     jfUpsertMember_(payload, personId, existingMember, trial);
 
     if (moduleExisting) {
-      setCellByHeader_(moduleSh, moduleExisting.row, moduleExisting.headers, 'Stato sincronizzazione', 'SINCRONIZZATO VIA WEBHOOK');
+      setCellByHeader_(moduleSh, moduleExisting.row, moduleExisting.headers, 'Stato sincronizzazione', jfSyncStatus_(payload));
     } else {
       appendByHeaders_(moduleSh, {
         'Jotform Submission ID': submissionId,
@@ -86,7 +92,7 @@ function handleJotformWebhook_(e) {
         'Consenso immagini web/social': payload.consentSocial,
         'Consenso immagini materiali': payload.consentMaterials,
         'Versione modulo': payload.version,
-        'Stato sincronizzazione': 'SINCRONIZZATO VIA WEBHOOK'
+        'Stato sincronizzazione': jfSyncStatus_(payload)
       });
     }
 
@@ -105,17 +111,31 @@ function handleJotformWebhook_(e) {
 }
 
 function jfParseSubmission_(raw, params, submissionId) {
-  const nameValue = jfFind_(raw, [['nome','cognome'], ['nomeecognome'], ['fullname']]);
-  const birthValue = jfFind_(raw, [['data','nascita'], ['datadinascita'], ['birth']]);
-  const signDateValue = jfFind_(raw, [['data','sottoscrizione'], ['datasottoscrizione']]);
+  // Jotform rawRequest usa chiavi del tipo q23_nomeE, q24_dataDi, ecc.
+  // Gli ID domanda sono il riferimento più stabile e disambiguano anche campi
+  // che condividono lo stesso nome interno (es. q53 e q54).
+  const nameValue = jfField_(raw, 23, ['nomeE'], [['nome','cognome'], ['fullname']]);
+  const birthValue = jfField_(raw, 24, ['dataDi'], [['data','nascita'], ['birth']]);
+  const signDateValue = jfField_(raw, 47, ['dataDi47'], [['data','sottoscrizione']]);
+
   const birthDate = jfParseDate_(birthValue);
   const signDate = jfParseDate_(signDateValue);
-  const frequencyRaw = jfValueText_(jfFind_(raw, [['frequenza','desiderata'], ['frequenza']]));
-  const daysRaw = jfValueText_(jfFind_(raw, [['giorni','frequenza'], ['giornidifrequenza']]));
+
+  const frequencyRaw = jfValueText_(jfField_(raw, 35, ['frequenzaDesiderata'], [['frequenza']]));
+  const daysRaw = jfValueText_(jfField_(raw, 57, ['giorniDi'], [['giorni','frequenza']]));
   const days = jfCanonicalDays_(daysRaw, frequencyRaw);
-  const phone = jfNormalizePhone_(jfValueText_(jfFind_(raw, [['telefono'], ['phone']])));
-  const email = jfValueText_(jfFind_(raw, [['email']])).toLowerCase();
-  const submitted = params.submissionDate || raw.created_at || raw.createdAt || raw.submissionDate || new Date();
+
+  const phone = jfNormalizePhone_(jfValueText_(jfField_(raw, 31, ['telefono'], [['telefono'], ['phone']])));
+  const email = jfValueText_(jfField_(raw, 32, ['email'], [['email']])).toLowerCase();
+
+  const clause1 = jfYesNo_(jfField_(raw, 40, ['clausola1'], [['clausola1']]));
+  const clause2 = jfYesNo_(jfField_(raw, 41, ['clausola2'], [['clausola2']]));
+  const clauseApproval = (clause1 === 'Sì' && clause2 === 'Sì')
+    ? 'Sì'
+    : ((clause1 || clause2) ? 'No' : '');
+
+  const submitted = params.submissionDate || params.created_at || params.createdAt ||
+    raw.created_at || raw.createdAt || raw.submissionDate || new Date();
 
   return {
     submissionId: submissionId,
@@ -124,30 +144,60 @@ function jfParseSubmission_(raw, params, submissionId) {
     birthDate: birthDate,
     birthDateText: birthDate ? Utilities.formatDate(birthDate, ADMIN.timezone, 'dd/MM/yyyy') : jfValueText_(birthValue),
     age: birthDate ? jfAge_(birthDate) : '',
-    birthPlace: jfValueText_(jfFind_(raw, [['luogo','nascita'], ['luogodinascita']])),
-    taxCode: jfValueText_(jfFind_(raw, [['codice','fiscale'], ['codicefiscale']])),
-    address: jfValueText_(jfFind_(raw, [['indirizzo','residenza'], ['indirizzo']])),
-    postalCode: jfValueText_(jfFind_(raw, [['cap'], ['postal']])),
-    city: jfValueText_(jfFind_(raw, [['comune'], ['city']])),
-    province: jfValueText_(jfFind_(raw, [['provincia'], ['province'], ['state']])),
+    birthPlace: jfValueText_(jfField_(raw, 25, ['luogoDi'], [['luogo','nascita']])),
+    taxCode: jfValueText_(jfField_(raw, 26, ['codiceFiscale'], [['codice','fiscale']])),
+    address: jfValueText_(jfField_(raw, 27, ['indirizzoDi'], [['indirizzo','residenza'], ['indirizzo']])),
+    postalCode: jfValueText_(jfField_(raw, 28, ['cap'], [['cap'], ['postal']])),
+    city: jfValueText_(jfField_(raw, 29, ['comune'], [['comune'], ['city']])),
+    province: jfValueText_(jfField_(raw, 30, ['provincia'], [['provincia'], ['province'], ['state']])).toUpperCase(),
     phone: phone,
     email: email,
-    adult: jfYesNo_(jfFind_(raw, [['almeno','18'], ['maggiorenne']])),
+    adult: jfYesNo_(jfField_(raw, 33, ['dichiaroDi'], [['almeno','18'], ['maggiorenne']])),
     frequencyRaw: frequencyRaw,
     frequency: jfCanonicalFrequency_(frequencyRaw, days),
     days: days,
-    plan: jfValueText_(jfFind_(raw, [['pacchetto','scelto'], ['pacchetto']])),
-    clauseApproval: jfYesNo_(jfFind_(raw, [['1341','1342'], ['approvo','specificamente']])),
-    signatureSpecific: jfValueText_(jfFind_(raw, [['firma','approvazione','specifica']])),
-    signatureDeclaration: jfValueText_(jfFind_(raw, [['firma','partecipante'], ['firma','dichiarazione']])),
-    signPlace: jfValueText_(jfFind_(raw, [['luogo','sottoscrizione'], ['luogosottoscrizione']])),
+    plan: jfValueText_(jfField_(raw, 36, ['pacchettoScelto'], [['pacchetto']])),
+    clauseApproval: clauseApproval,
+    signatureSpecific: jfValueText_(jfField_(raw, 43, ['firmaPer'], [['firma','approvazione','specifica']])),
+    signatureDeclaration: jfValueText_(jfField_(raw, 48, ['firmaDel'], [['firma','partecipante'], ['firma','dichiarazione']])),
+    signPlace: jfValueText_(jfField_(raw, 46, ['luogoDi46'], [['luogo','sottoscrizione']])),
     signDate: signDate,
     signDateText: signDate ? Utilities.formatDate(signDate, ADMIN.timezone, 'yyyy-MM-dd') : jfValueText_(signDateValue),
-    privacy: jfYesNo_(jfFind_(raw, [['informativa','privacy'], ['privacy','presa'], ['privacy']])),
-    consentSocial: jfYesNo_(jfFind_(raw, [['sito','web','canali','social'], ['immagini','web','social']])),
-    consentMaterials: jfYesNo_(jfFind_(raw, [['materiale','promozionale'], ['immagini','materiali']])),
-    version: jfValueText_(jfFind_(raw, [['versione','modulo']])) || str_(config_('Versione modulo iscrizione')) || '2026.1'
+    privacy: jfYesNo_(jfField_(raw, 51, ['dichiaroDi51'], [['informativa','privacy'], ['privacy']])),
+    consentSocial: jfYesNo_(jfField_(raw, 53, ['autorizzoLutilizzo'], [['sito','web','canali','social'], ['immagini','web','social']])),
+    consentMaterials: jfYesNo_(jfField_(raw, 54, ['autorizzoLutilizzo'], [['materiale','promozionale'], ['immagini','materiali']])),
+    version: jfValueText_(jfField_(raw, 56, ['versioneModulo'], [['versione','modulo']])) ||
+      str_(config_('Versione modulo iscrizione')) || '2026.1'
   };
+}
+
+function jfField_(raw, questionId, internalNames, fallbackAlternatives) {
+  const obj = raw || {};
+  const keys = Object.keys(obj);
+  const prefix = 'q' + String(questionId) + '_';
+
+  // 1) Match per ID domanda: evita collisioni tra nomi interni duplicati.
+  for (const key of keys) {
+    if (key.indexOf(prefix) === 0) return obj[key];
+  }
+
+  // 2) Fallback su nome interno esatto/normalizzato.
+  const wantedNames = (internalNames || []).map(jfNorm_);
+  for (const wanted of wantedNames) {
+    for (const key of keys) {
+      const nk = jfNorm_(key.replace(/^q\d+_/, ''));
+      if (nk === wanted) return obj[key];
+    }
+  }
+
+  // 3) Compatibilità con payload futuri/alternativi.
+  return jfFind_(obj, fallbackAlternatives || []);
+}
+
+function jfSyncStatus_(payload) {
+  return payload && payload.birthDate
+    ? 'SINCRONIZZATO VIA WEBHOOK'
+    : 'SINCRONIZZATO VIA WEBHOOK - DATA NASCITA NON VALIDA';
 }
 
 function jfUpsertMember_(p, personId, existing, trial) {
@@ -186,6 +236,11 @@ function jfUpsertMember_(p, personId, existing, trial) {
     'Consenso immagini web/social': jfConsentLabel_(p.consentSocial),
     'Consenso immagini materiali': jfConsentLabel_(p.consentMaterials)
   };
+
+  if (!existing) {
+    values['Presenze 30gg'] = 0;
+    values['Assenze consecutive'] = 0;
+  }
 
   if (existing) {
     Object.keys(values).forEach(k => {
