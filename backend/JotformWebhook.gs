@@ -8,7 +8,7 @@ function isJotformWebhookRequest_(e) {
 
 function handleJotformWebhook_(e) {
   const p = (e && e.parameter) || {};
-  const expectedSecret = PropertiesService.getScriptProperties().getProperty('JOTFORM_WEBHOOK_SECRET');
+  const expectedSecret = PropertiesService.getScriptProperties().getProperty('JOTFORM_WEBHOOK_SECRET') || str_(config_('Jotform webhook secret'));
   const providedSecret = str_(p.jf_secret || p.secret);
 
   if (!expectedSecret || !providedSecret || providedSecret !== expectedSecret) {
