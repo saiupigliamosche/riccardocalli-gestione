@@ -1,4 +1,4 @@
-const CONFIG={VERSION:"0.6.0",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",ENROLLMENT_FORM:"https://form.jotform.com/262643062831050"};
+const CONFIG={VERSION:"0.6.1",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",ENROLLMENT_FORM:"https://form.jotform.com/262643062831050"};
 const now=new Date();
 const state={view:"home",today:null,trials:[],members:[],payments:[],dashboard:null,monthYear:now.getFullYear(),monthIndex:now.getMonth(),selectedDate:null};
 const $=s=>document.querySelector(s),viewEl=$("#view"),titleEl=$("#pageTitle"),toastEl=$("#toast");
@@ -213,12 +213,26 @@ function renderTrials(){
     return '<div class="card trialCard" data-search="'+esc((p.name||"").toLowerCase())+'"><div class="card-row"><div><div class="card-title">'+esc(p.name)+'</div><div class="card-sub">'+(p.age||"—")+' anni · '+fmtDate(p.date)+'</div></div><span class="badge '+(converted||p.status==="Presentato"?"ok":"trial")+'">'+esc(p.status||"Prenotato")+'</span></div>'+actions+'</div>';
   }).join(""):'<div class="empty">Nessuna prova da gestire.</div>');
 }
+function memberCardHtml(p,archived=false){
+  const badgeClass=archived?"danger":(p.risk==="ALTO"?"danger":"ok");
+  const actions=archived
+    ? '<div class="actions grid2"><button class="primary" onclick="restoreMember(\''+esc(p.id)+'\')">RIPRISTINA</button><button class="secondary" onclick="memberDetail(\''+esc(p.id)+'\')">DETTAGLI</button></div>'
+    : '<div class="actions grid2"><button class="primary" onclick="newPayment(\''+esc(p.id)+'\')">PAGAMENTO</button><button class="secondary" onclick="memberDetail(\''+esc(p.id)+'\')">DETTAGLI</button></div>';
+  return '<div class="card memberCard" data-search="'+esc((p.name||"").toLowerCase())+'"><div class="card-row"><div><div class="card-title">'+esc(p.name)+'</div><div class="card-sub">'+esc(p.plan||"Piano non impostato")+' · '+esc(p.frequency||"frequenza non impostata")+'</div></div><span class="badge '+badgeClass+'">'+esc(p.status||"Attivo")+'</span></div>'+actions+'</div>';
+}
 function renderMembers(){
   titleEl.textContent="Iscritti";
   if(!backend()||!token()){viewEl.innerHTML=connectionCard();return}
   const rows=state.members||[];
-  viewEl.innerHTML='<button class="primary" onclick="newMember()">+ NUOVO ISCRITTO</button><div style="height:12px"></div><input class="search" placeholder="Cerca un iscritto…" oninput="filterCards(this.value,\'memberCard\')"><div class="section-head"><h2>Iscritti attivi</h2><span class="badge ok">'+rows.filter(x=>x.status==="Attivo").length+'</span></div>'+
-  (rows.length?rows.map(p=>'<div class="card memberCard" data-search="'+esc((p.name||"").toLowerCase())+'"><div class="card-row"><div><div class="card-title">'+esc(p.name)+'</div><div class="card-sub">'+esc(p.plan||"Piano non impostato")+' · '+esc(p.frequency||"frequenza non impostata")+'</div></div><span class="badge '+(p.risk==="ALTO"?"danger":"ok")+'">'+esc(p.status||"Attivo")+'</span></div><div class="actions grid2"><button class="primary" onclick="newPayment(\''+esc(p.id)+'\')">PAGAMENTO</button><button class="secondary" onclick="memberDetail(\''+esc(p.id)+'\')">DETTAGLI</button></div></div>').join(""):'<div class="empty">Nessun iscritto caricato.</div>');
+  const archived=rows.filter(x=>x.status==="Eliminato");
+  const current=rows.filter(x=>x.status!=="Eliminato");
+  const activeCount=current.filter(x=>x.status==="Attivo").length;
+  viewEl.innerHTML='<button class="primary" onclick="newMember()">+ NUOVO ISCRITTO</button><div style="height:12px"></div><input class="search" placeholder="Cerca uno studente…" oninput="filterCards(this.value,\'memberCard\')">'+
+    '<div class="section-head"><h2>Iscritti</h2><span class="badge ok">'+activeCount+' attivi</span></div>'+
+    (current.length?current.map(p=>memberCardHtml(p,false)).join(""):'<div class="empty">Nessun iscritto caricato.</div>')+
+    '<section class="section"><div class="section-head"><h2>Studenti eliminati</h2><span class="badge danger">'+archived.length+'</span></div>'+
+    (archived.length?archived.map(p=>memberCardHtml(p,true)).join(""):'<div class="empty">Nessuno studente eliminato.</div>')+
+    '</section>';
 }
 function renderPayments(){
   titleEl.textContent="Pagamenti";
@@ -506,7 +520,7 @@ function editMember(id){
     editChoiceGroup("Frequenza","frequency",[["1","1× settimana"],["2","2× settimana"]],editDraft.frequency)+
     '<div id="editDayGroup" style="display:'+(editDraft.frequency==="1"?'block':'none')+'">'+editChoiceGroup("Giorno","day",[["Martedì","Martedì"],["Giovedì","Giovedì"]],editDraft.day)+'</div>'+
     editChoiceGroup("Pacchetto","plan",[["Annuale","Annuale"],["3 rate","3 rate"],["Mese di prova","Mese di prova"]],editDraft.plan)+
-    editChoiceGroup("Stato","status",[["Attivo","Attivo"],["Sospeso","Sospeso"],["Uscito","Uscito"]],editDraft.status);
+    editChoiceGroup("Stato","status",[["Attivo","Attivo"],["Sospeso","Sospeso"],["Uscito","Uscito"],["Eliminato","Elimina"]],editDraft.status);
   openModal({id:"memberEditModal",eyebrow:"MODIFICA ISCRITTO",title:esc(m.name),body,actions:'<button class="secondary" onclick="closeModal(\'memberEditModal\')">ANNULLA</button><button class="primary edit-save" onclick="saveMemberEdit()">SALVA</button>'});
 }
 function editChoiceGroup(label,group,items,selected){return '<div class="choice-section"><div class="field-label">'+label+'</div><div class="choice-grid">'+items.map(x=>'<button type="button" class="choice-btn '+(x[0]===selected?'selected':'')+'" data-edit-group="'+group+'" onclick="chooseEditOption(\''+group+'\',\''+x[0]+'\',this)">'+x[1]+'</button>').join('')+'</div></div>'}
@@ -517,6 +531,24 @@ async function saveMemberEdit(){
   const frequency=editDraft.frequency==="2"?"2x/settimana - Martedì+Giovedì":"1x/settimana - "+editDraft.day;
   const btn=document.querySelector(".edit-save");btn.disabled=true;btn.textContent="SALVATAGGIO…";
   try{await api("updateMember",{personId:editDraft.id,name,age,phone,email,frequency,plan:editDraft.plan,status:editDraft.status});closeModal("memberEditModal");toast("Dati aggiornati");await loadAll();state.view="members";render()}catch(e){btn.disabled=false;btn.textContent="SALVA";showError(e.message,"Dati non aggiornati")}
+}
+
+function restoreMember(id){
+  const m=state.members.find(x=>x.id===id);if(!m)return;
+  showConfirm({
+    eyebrow:"ARCHIVIO STUDENTI",
+    title:"Ripristina "+m.name,
+    message:"Lo studente tornerà nella lista degli iscritti con stato Attivo. Tutti i dati storici restano invariati.",
+    confirmLabel:"RIPRISTINA",
+    onConfirm:async()=>{
+      try{
+        await api("setMemberStatus",{personId:id,status:"Attivo"});
+        toast("Studente ripristinato");
+        await loadAll();
+        state.view="members";render();
+      }catch(e){showError(e.message,"Ripristino non riuscito")}
+    }
+  });
 }
 
 if("serviceWorker"in navigator)window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}));
