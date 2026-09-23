@@ -504,7 +504,10 @@ function memberDetail(id){
       '<div class="detail-item wide"><span>Telefono</span><strong>'+value(m.phone)+'</strong></div>'+
       '<div class="detail-item wide"><span>Email</span><strong>'+value(m.email)+'</strong></div>'+
     '</div>';
-  openModal({id:"memberDetailModal",eyebrow:"DETTAGLI ISCRITTO",title:esc(m.name),body,actions:'<button class="secondary" onclick="editMember(\''+esc(m.id)+'\')">MODIFICA</button><button class="primary" onclick="detailPayment(\''+esc(m.id)+'\')">PAGAMENTO</button>'});
+  const actions=m.status==="Eliminato"
+    ? '<button class="secondary" onclick="editMember(\''+esc(m.id)+'\')">MODIFICA</button><button class="primary" onclick="closeMemberDetail();restoreMember(\''+esc(m.id)+'\')">RIPRISTINA</button>'
+    : '<button class="secondary" onclick="editMember(\''+esc(m.id)+'\')">MODIFICA</button><button class="primary" onclick="detailPayment(\''+esc(m.id)+'\')">PAGAMENTO</button>';
+  openModal({id:"memberDetailModal",eyebrow:"DETTAGLI ISCRITTO",title:esc(m.name),body,actions});
 }
 function closeMemberDetail(){closeModal("memberDetailModal")}
 function detailPayment(id){closeMemberDetail();newPayment(id)}
