@@ -1,4 +1,4 @@
-const CONFIG={VERSION:"0.6.2",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",ENROLLMENT_FORM:"https://form.jotform.com/262643062831050"};
+const CONFIG={VERSION:"0.6.3",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",ENROLLMENT_FORM:"https://form.jotform.com/262643062831050"};
 const now=new Date();
 const state={view:"home",today:null,trials:[],members:[],payments:[],dashboard:null,monthYear:now.getFullYear(),monthIndex:now.getMonth(),selectedDate:null};
 const $=s=>document.querySelector(s),viewEl=$("#view"),titleEl=$("#pageTitle"),toastEl=$("#toast");
@@ -528,6 +528,31 @@ function editMember(id){
 }
 function editChoiceGroup(label,group,items,selected){return '<div class="choice-section"><div class="field-label">'+label+'</div><div class="choice-grid">'+items.map(x=>'<button type="button" class="choice-btn '+(x[0]===selected?'selected':'')+'" data-edit-group="'+group+'" onclick="chooseEditOption(\''+group+'\',\''+x[0]+'\',this)">'+x[1]+'</button>').join('')+'</div></div>'}
 function chooseEditOption(group,value,btn){editDraft[group]=value;document.querySelectorAll('[data-edit-group="'+group+'"]').forEach(x=>x.classList.remove('selected'));btn.classList.add('selected');if(group==="frequency"){document.querySelector("#editDayGroup").style.display=value==="1"?"block":"none";editDraft.day=value==="1"?"Martedì":"Martedì+Giovedì"}}
+async function setMemberStatusRobust(personId,status){
+  try{
+    return await api("setMemberStatus",{personId,status});
+  }catch(e){
+    const msg=String(e&&e.message||e||"");
+    if(!/load failed|failed to fetch|networkerror|network request failed/i.test(msg))throw e;
+    await fetch(backend(),{
+      method:"POST",
+      mode:"no-cors",
+      headers:{"Content-Type":"text/plain;charset=utf-8"},
+      body:JSON.stringify({token:token(),action:"setMemberStatus",data:{personId,status}})
+    });
+    await new Promise(r=>setTimeout(r,1000));
+    let fresh=null,lastErr=null;
+    for(let attempt=0;attempt<2;attempt++){
+      try{fresh=await api("bootstrap");break}catch(err){lastErr=err;await new Promise(r=>setTimeout(r,700))}
+    }
+    if(!fresh)throw lastErr||new Error("Impossibile verificare l'aggiornamento.");
+    const member=(fresh.members||[]).find(x=>x.id===personId);
+    if(!member||member.status!==status)throw new Error("Aggiornamento non confermato dal backend.");
+    Object.assign(state,fresh);
+    return {ok:true};
+  }
+}
+
 async function saveMemberEdit(){
   const name=document.querySelector("#editName")?.value.trim(),age=Number(document.querySelector("#editAge")?.value),phone=document.querySelector("#editPhone")?.value.trim(),email=document.querySelector("#editEmail")?.value.trim();
   if(!name){showError("Inserisci nome e cognome.","Dato mancante");return}
@@ -535,7 +560,7 @@ async function saveMemberEdit(){
   const btn=document.querySelector(".edit-save");btn.disabled=true;btn.textContent="SALVATAGGIO…";
   try{
     if(editDraft.status==="Eliminato"){
-      await api("setMemberStatus",{personId:editDraft.id,status:"Eliminato"});
+      await setMemberStatusRobust(editDraft.id,"Eliminato");
     }else{
       await api("updateMember",{personId:editDraft.id,name,age,phone,email,frequency,plan:editDraft.plan,status:editDraft.status});
     }
