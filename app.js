@@ -1,4 +1,4 @@
-const CONFIG={VERSION:"0.6.4",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",ENROLLMENT_FORM:"https://form.jotform.com/262643062831050"};
+const CONFIG={VERSION:"0.6.5",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",ENROLLMENT_FORM:"https://form.jotform.com/262643062831050"};
 const now=new Date();
 const state={view:"home",today:null,trials:[],members:[],payments:[],dashboard:null,monthYear:now.getFullYear(),monthIndex:now.getMonth(),selectedDate:null};
 const $=s=>document.querySelector(s),viewEl=$("#view"),titleEl=$("#pageTitle"),toastEl=$("#toast");
@@ -148,6 +148,7 @@ function expectedMembersForSelectedDate(key){
   const d=new Date(key+"T12:00:00");
   const day=d.getDay();
   const extras=new Set(extraIds(key));
+  const todayById=(key===todayKey()&&state.today)?new Map((state.today.members||[]).map(x=>[x.id,x])):null;
   return (state.members||[]).filter(m=>{
     if((m.status||"Attivo")!=="Attivo")return false;
     const f=String(m.frequency||"").toLowerCase();
@@ -158,20 +159,21 @@ function expectedMembersForSelectedDate(key){
   }).map(m=>{
     m.extra=extras.has(m.id);
     const cp=cachedPresence(key,m.id);
-    m.present=cp!==null?cp:false;
+    if(cp!==null)m.present=cp;
+    else if(todayById&&todayById.has(m.id))m.present=!!todayById.get(m.id).present;
+    else m.present=false;
     return m;
   });
 }
 function lessonDetail(){
   const key=state.selectedDate;
   if(!key)return "";
-  const trials=trialsFor(key);
+  const trials=trialsFor(key).map(t=>{
+    const cp=cachedPresence(key,t.id);
+    if(cp!==null)t.present=cp;
+    return t;
+  });
   const members=expectedMembersForSelectedDate(key);
-  const isToday=key===todayKey()&&state.today;
-  if(isToday){
-    const todayById=new Map((state.today.members||[]).map(x=>[x.id,x]));
-    members.forEach(m=>{if(todayById.has(m.id))m.present=!!todayById.get(m.id).present});
-  }
   let html='<section class="section"><div class="card"><div class="card-row"><div><div class="card-title">'+esc(fmtDate(key))+'</div><div class="card-sub">19:00–20:30 · La Cittadella della Stanga · '+members.length+' iscritti previsti · '+trials.length+' prove</div><div class="card-sub"><a href="https://maps.app.goo.gl/G5zFoprsZqDC37xw6" target="_blank" rel="noopener">Apri su Google Maps</a></div></div><span class="badge ok">LEZIONE</span></div></div>';
   html+=personSection("ISCRITTI PREVISTI",members,false);
   if(trials.length){
@@ -252,29 +254,84 @@ async function loadAll(){viewEl.innerHTML='<div class="skeleton"></div>';try{if(
 function render(){document.querySelectorAll(".nav-item").forEach(b=>b.classList.toggle("active",b.dataset.view===state.view));({home:renderHome,trials:renderTrials,members:renderMembers,payments:renderPayments,dashboard:renderDashboard}[state.view])()}
 document.querySelectorAll(".nav-item").forEach(b=>b.addEventListener("click",()=>{state.view=b.dataset.view;render()}));$("#syncBtn").addEventListener("click",loadAll);
 
-async function togglePresence(id,type){
+const presencePending=new Map();
+let presenceSaving=false;
+let presenceFlushWaiters=[];
+
+function presenceKey(p){return [p.lessonDate,p.type,p.personId||p.id].join("|")}
+
+async function savePresenceRobust(payload){
+  try{
+    return await api("setPresence",payload);
+  }catch(e){
+    const msg=String(e&&e.message||e||"");
+    if(!/load failed|failed to fetch|networkerror|network request failed/i.test(msg))throw e;
+    const body=JSON.stringify({token:token(),action:"setPresence",data:payload});
+    let queued=false;
+    if(navigator.sendBeacon){
+      try{queued=navigator.sendBeacon(backend(),new Blob([body],{type:"text/plain;charset=UTF-8"}))}catch(_){}
+    }
+    if(!queued){
+      try{
+        await fetch(backend(),{method:"POST",mode:"no-cors",cache:"no-store",credentials:"omit",body});
+        queued=true;
+      }catch(_){}
+    }
+    if(!queued)throw e;
+    await new Promise(r=>setTimeout(r,650));
+    return {ok:true,queued:true};
+  }
+}
+
+function enqueuePresenceSave(payload){
+  presencePending.set(presenceKey(payload),payload);
+  processPresenceQueue();
+}
+
+async function processPresenceQueue(){
+  if(presenceSaving)return;
+  presenceSaving=true;
+  while(presencePending.size){
+    const first=presencePending.entries().next().value;
+    const key=first[0],payload=first[1];
+    presencePending.delete(key);
+    try{
+      await savePresenceRobust(payload);
+    }catch(e){
+      presencePending.set(key,payload);
+      await new Promise(r=>setTimeout(r,900));
+      break;
+    }
+  }
+  presenceSaving=false;
+  if(!presencePending.size){
+    const waiters=presenceFlushWaiters.splice(0);
+    waiters.forEach(fn=>fn());
+  }else{
+    setTimeout(processPresenceQueue,700);
+  }
+}
+
+function flushPresenceQueue(){
+  if(!presenceSaving&&!presencePending.size)return Promise.resolve();
+  return new Promise(resolve=>presenceFlushWaiters.push(resolve));
+}
+
+function togglePresence(id,type){
   const p=type==="trial"?state.trials.find(x=>x.id===id):state.members.find(x=>x.id===id);
   if(!p)return;
   const lessonDate=state.selectedDate||todayKey();
-  const previous=!!p.present;
-  const next=!previous;
+  const next=!p.present;
   p.present=next;
   setCachedPresence(lessonDate,id,next);
   setLessonConfirmed(lessonDate,false);
   renderHome();
-  try{
-    await api("setPresence",{id,personId:type==="trial"?(p.personId||id):id,type,lessonDate,present:next});
-  }catch(e){
-    p.present=previous;
-    setCachedPresence(lessonDate,id,previous);
-    renderHome();
-    showError(e.message,"Presenza non salvata");
-  }
+  enqueuePresenceSave({id,personId:type==="trial"?(p.personId||id):id,type,lessonDate,present:next});
 }
 async function forceAbsent(entity,type,date){
   const payload={id:entity.id,personId:type==="trial"?(entity.personId||entity.id):entity.id,type,lessonDate:date,present:false};
-  await api("setPresence",payload);
   setCachedPresence(date,entity.id,false);
+  enqueuePresenceSave(payload);
 }
 function openLessonConfirm(){
   const key=state.selectedDate;
@@ -297,10 +354,22 @@ async function confirmLesson(){
   closeLessonConfirm();
   setLessonConfirmed(key,true);
   renderHome();
-  toast("Lezione confermata · salvataggio in corso");
+  toast("Lezione confermata · sincronizzazione in corso");
   try{
-    await Promise.all(absent.map(x=>forceAbsent(x.entity,x.type,key)));
-    await api("closeLesson",{lessonDate:key});
+    absent.forEach(x=>forceAbsent(x.entity,x.type,key));
+    await flushPresenceQueue();
+    try{
+      await api("closeLesson",{lessonDate:key});
+    }catch(e){
+      const msg=String(e&&e.message||e||"");
+      if(!/load failed|failed to fetch|networkerror|network request failed/i.test(msg))throw e;
+      const body=JSON.stringify({token:token(),action:"closeLesson",data:{lessonDate:key}});
+      let queued=false;
+      if(navigator.sendBeacon){
+        try{queued=navigator.sendBeacon(backend(),new Blob([body],{type:"text/plain;charset=UTF-8"}))}catch(_){}
+      }
+      if(!queued)await fetch(backend(),{method:"POST",mode:"no-cors",cache:"no-store",credentials:"omit",body});
+    }
     toast("Lezione confermata");
   }catch(e){
     setLessonConfirmed(key,false);
@@ -318,7 +387,7 @@ function openAddPresence(){
 }
 function closePresenceModal(){closeModal("presenceModal")}
 function filterPresencePicks(q){q=q.toLowerCase();document.querySelectorAll(".presence-pick").forEach(el=>el.style.display=el.innerText.toLowerCase().includes(q)?"":"none")}
-async function addExtraPresence(id){
+function addExtraPresence(id){
   const p=state.members.find(x=>x.id===id);if(!p)return;
   const key=state.selectedDate||todayKey();
   setExtraId(key,id,true);
@@ -327,13 +396,8 @@ async function addExtraPresence(id){
   setLessonConfirmed(key,false);
   closePresenceModal();
   renderHome();
-  try{
-    await api("setPresence",{id,personId:id,type:"member",lessonDate:key,present:true});
-    toast(p.name+" aggiunto come presenza extra");
-  }catch(e){
-    setExtraId(key,id,false);setCachedPresence(key,id,false);p.present=false;p.extra=false;renderHome();
-    showError(e.message,"Presenza non salvata");
-  }
+  enqueuePresenceSave({id,personId:id,type:"member",lessonDate:key,present:true});
+  toast(p.name+" aggiunto");
 }
 async function shareEnrollmentForm(id){
   const p=state.trials.find(x=>x.id===id);
