@@ -1,4 +1,4 @@
-const CONFIG={VERSION:"0.6.1",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",ENROLLMENT_FORM:"https://form.jotform.com/262643062831050"};
+const CONFIG={VERSION:"0.6.2",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",ENROLLMENT_FORM:"https://form.jotform.com/262643062831050"};
 const now=new Date();
 const state={view:"home",today:null,trials:[],members:[],payments:[],dashboard:null,monthYear:now.getFullYear(),monthIndex:now.getMonth(),selectedDate:null};
 const $=s=>document.querySelector(s),viewEl=$("#view"),titleEl=$("#pageTitle"),toastEl=$("#toast");
@@ -533,7 +533,22 @@ async function saveMemberEdit(){
   if(!name){showError("Inserisci nome e cognome.","Dato mancante");return}
   const frequency=editDraft.frequency==="2"?"2x/settimana - Martedì+Giovedì":"1x/settimana - "+editDraft.day;
   const btn=document.querySelector(".edit-save");btn.disabled=true;btn.textContent="SALVATAGGIO…";
-  try{await api("updateMember",{personId:editDraft.id,name,age,phone,email,frequency,plan:editDraft.plan,status:editDraft.status});closeModal("memberEditModal");toast("Dati aggiornati");await loadAll();state.view="members";render()}catch(e){btn.disabled=false;btn.textContent="SALVA";showError(e.message,"Dati non aggiornati")}
+  try{
+    if(editDraft.status==="Eliminato"){
+      await api("setMemberStatus",{personId:editDraft.id,status:"Eliminato"});
+    }else{
+      await api("updateMember",{personId:editDraft.id,name,age,phone,email,frequency,plan:editDraft.plan,status:editDraft.status});
+    }
+    closeModal("memberEditModal");
+    toast(editDraft.status==="Eliminato"?"Studente eliminato":"Dati aggiornati");
+    await loadAll();
+    state.view="members";
+    render();
+  }catch(e){
+    btn.disabled=false;
+    btn.textContent="SALVA";
+    showError(e.message,"Dati non aggiornati");
+  }
 }
 
 function restoreMember(id){
