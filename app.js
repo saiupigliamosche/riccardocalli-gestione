@@ -1,4 +1,4 @@
-const CONFIG={VERSION:"0.6.3",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",ENROLLMENT_FORM:"https://form.jotform.com/262643062831050"};
+const CONFIG={VERSION:"0.6.4",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",ENROLLMENT_FORM:"https://form.jotform.com/262643062831050"};
 const now=new Date();
 const state={view:"home",today:null,trials:[],members:[],payments:[],dashboard:null,monthYear:now.getFullYear(),monthIndex:now.getMonth(),selectedDate:null};
 const $=s=>document.querySelector(s),viewEl=$("#view"),titleEl=$("#pageTitle"),toastEl=$("#toast");
@@ -93,7 +93,7 @@ function runModalConfirm(){const fn=window.pendingModalConfirm;window.pendingMod
 
 async function api(action,data={}){
   if(!backend()||!token())throw new Error("Gestionale non collegato");
-  const r=await fetch(backend(),{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({token:token(),action,data})});
+  const r=await fetch(backend(),{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({token:token(),action,data}),cache:"no-store",credentials:"omit",redirect:"follow"});
   if(!r.ok)throw new Error("Backend non raggiungibile");
   const out=await r.json();
   if(!out.ok)throw new Error(out.error||"Errore backend");
@@ -534,21 +534,48 @@ async function setMemberStatusRobust(personId,status){
   }catch(e){
     const msg=String(e&&e.message||e||"");
     if(!/load failed|failed to fetch|networkerror|network request failed/i.test(msg))throw e;
-    await fetch(backend(),{
-      method:"POST",
-      mode:"no-cors",
-      headers:{"Content-Type":"text/plain;charset=utf-8"},
-      body:JSON.stringify({token:token(),action:"setMemberStatus",data:{personId,status}})
-    });
-    await new Promise(r=>setTimeout(r,1000));
-    let fresh=null,lastErr=null;
-    for(let attempt=0;attempt<2;attempt++){
-      try{fresh=await api("bootstrap");break}catch(err){lastErr=err;await new Promise(r=>setTimeout(r,700))}
+
+    const payload=JSON.stringify({token:token(),action:"setMemberStatus",data:{personId,status}});
+    let queued=false;
+
+    if(navigator.sendBeacon){
+      try{
+        queued=navigator.sendBeacon(
+          backend(),
+          new Blob([payload],{type:"text/plain;charset=UTF-8"})
+        );
+      }catch(_){}
     }
-    if(!fresh)throw lastErr||new Error("Impossibile verificare l'aggiornamento.");
-    const member=(fresh.members||[]).find(x=>x.id===personId);
-    if(!member||member.status!==status)throw new Error("Aggiornamento non confermato dal backend.");
-    Object.assign(state,fresh);
+
+    if(!queued){
+      try{
+        await fetch(backend(),{
+          method:"POST",
+          mode:"no-cors",
+          cache:"no-store",
+          credentials:"omit",
+          body:payload
+        });
+        queued=true;
+      }catch(_){}
+    }
+
+    if(!queued)throw e;
+
+    await new Promise(r=>setTimeout(r,1400));
+
+    try{
+      const fresh=await api("bootstrap");
+      const member=(fresh.members||[]).find(x=>x.id===personId);
+      if(!member||member.status!==status)throw new Error("Aggiornamento non confermato dal backend.");
+      Object.assign(state,fresh);
+    }catch(verifyErr){
+      const verifyMsg=String(verifyErr&&verifyErr.message||verifyErr||"");
+      if(!/load failed|failed to fetch|networkerror|network request failed/i.test(verifyMsg))throw verifyErr;
+      const localMember=(state.members||[]).find(x=>x.id===personId);
+      if(localMember)localMember.status=status;
+    }
+
     return {ok:true};
   }
 }
