@@ -1,6 +1,6 @@
-const CONFIG={VERSION:"0.7.1",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",ENROLLMENT_FORM:"https://form.jotform.com/262643062831050"};
+const CONFIG={VERSION:"0.8.0",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",ENROLLMENT_FORM:"https://form.jotform.com/262643062831050",SEASON_START:"2026-10-01",SEASON_END:"2027-06-09"};
 const now=new Date();
-const state={view:"home",today:null,trials:[],members:[],payments:[],dashboard:null,monthYear:now.getFullYear(),monthIndex:now.getMonth(),selectedDate:null};
+const state={view:"home",today:null,trials:[],members:[],payments:[],lessons:[],dashboard:null,monthYear:now.getFullYear(),monthIndex:now.getMonth(),selectedDate:null};
 const memberDirectory={filter:"current",query:""};
 const $=s=>document.querySelector(s),viewEl=$("#view"),titleEl=$("#pageTitle"),toastEl=$("#toast");
 const backend=()=>localStorage.getItem("parkour_admin_endpoint")||CONFIG.DEFAULT_API;
@@ -107,7 +107,7 @@ function saveBackendToken(){const tk=document.querySelector("#adminToken")?.valu
 function disconnectBackend(){
   showConfirm({eyebrow:"SICUREZZA",title:"Disconnetti dispositivo",message:"Il token amministratore verrà rimosso solo da questo dispositivo.",confirmLabel:"DISCONNETTI",danger:true,onConfirm:()=>{
     localStorage.removeItem("parkour_admin_token");
-    Object.assign(state,{today:null,trials:[],members:[],payments:[],dashboard:null});
+    Object.assign(state,{today:null,trials:[],members:[],payments:[],lessons:[],dashboard:null});
     render();
   }});
 }
@@ -181,7 +181,7 @@ function lessonDetail(){
     html+='<div class="section-head"><h2>IN PROVA</h2><span class="badge trial">'+trials.length+'</span></div>';
     html+=trials.map(t=>'<button class="person '+(t.present?"present":"")+'" onclick="togglePresence(\''+esc(t.id)+'\',\'trial\')"><span class="avatar">'+initials(t.name)+'</span><span class="person-main"><span class="person-name">'+esc(t.name)+'</span><span class="person-sub">'+(t.age||"—")+' anni · PROVA</span></span><span class="tick">✓</span></button>').join("");
   }
-  html+='<div class="actions"><button class="secondary" onclick="openAddPresence()">+ AGGIUNGI PRESENZA</button></div>';
+  html+='<div class="actions grid2"><button class="secondary" onclick="openAddPresence()">+ AGGIUNGI PRESENZA</button><button class="secondary" onclick="openDidacticsNote(\''+key+'\')">DIDATTICA</button></div>';
   const confirmed=!!confirmedLessons()[key];
   const totalPeople=members.length+trials.length;
   const presentCount=[...members,...trials].filter(x=>x.present).length;
@@ -264,6 +264,21 @@ function renderPayments(){
   viewEl.innerHTML='<button class="primary" onclick="newPayment()">+ REGISTRA PAGAMENTO</button><section class="section"><div class="section-head"><h2>Ultimi pagamenti</h2></div>'+
   (state.payments?.length?state.payments.map(x=>'<div class="card"><div class="card-row"><div><div class="card-title">'+esc(x.name)+'</div><div class="card-sub">'+fmtDate(x.date)+' · '+esc(x.method||"")+'</div></div><strong>'+money(x.amount)+'</strong></div></div>').join(""):'<div class="empty">Nessun pagamento registrato.</div>')+'</section>';
 }
+function lessonNoteCard(x){
+  const today=todayKey(),label=x.date===today?"OGGI":x.date>today?"PROGRAMMATA":"SVOLTA";
+  return '<button class="lesson-note-card didacticsCard" data-search="'+esc((x.date+' '+x.didactics).toLowerCase())+'" onclick="openDidacticsNote(\''+esc(x.date)+'\')"><span class="lesson-note-head"><span><strong>'+esc(fmtDate(x.date))+'</strong><small>'+(x.spot?esc(x.spot):"Lezione Parkour")+'</small></span><span class="badge '+(x.date>=today?'trial':'ok')+'">'+label+'</span></span><span class="lesson-note-preview">'+esc(x.didactics)+'</span><span class="lesson-note-edit">APRI E MODIFICA ›</span></button>';
+}
+function lessonNoteSection(title,rows){return rows.length?'<section class="didactics-section"><div class="section-head"><h2>'+title+'</h2><span class="badge ok">'+rows.length+'</span></div><div class="didactics-list">'+rows.map(lessonNoteCard).join("")+'</div></section>':''}
+function renderDidactics(){
+  titleEl.textContent="Didattica";
+  if(!backend()||!token()){viewEl.innerHTML=connectionCard();return}
+  const today=todayKey();
+  const rows=(state.lessons||[]).filter(x=>String(x.didactics||"").trim());
+  const upcoming=rows.filter(x=>x.date>=today).sort((a,b)=>a.date.localeCompare(b.date));
+  const history=rows.filter(x=>x.date<today).sort((a,b)=>b.date.localeCompare(a.date));
+  viewEl.innerHTML='<button class="primary" onclick="openDidacticsNote()">+ PROGRAMMA LEZIONE</button><div style="height:12px"></div><input class="search" placeholder="Cerca nella didattica…" oninput="filterCards(this.value,\'didacticsCard\')">'+
+    (rows.length?lessonNoteSection("PROSSIME LEZIONI",upcoming)+lessonNoteSection("STORICO",history):'<div class="empty didactics-empty"><strong>Nessuna didattica salvata</strong><span>Programma la prima lezione mantenendo lo stesso formato libero che usi nelle Note.</span></div>');
+}
 function renderDashboard(){
   titleEl.textContent="Dashboard";
   if(!backend()||!token()){viewEl.innerHTML=connectionCard();return}
@@ -275,8 +290,46 @@ function renderDashboard(){
 }
 function filterCards(q,cls){q=q.toLowerCase();document.querySelectorAll("."+cls).forEach(el=>el.style.display=(el.dataset.search||"").includes(q)?"":"none")}
 async function loadAll(){viewEl.innerHTML='<div class="skeleton"></div>';try{if(backend()&&token())Object.assign(state,await api("bootstrap"))}catch(e){showError(e.message,"Dati non caricati")}render()}
-function render(){document.querySelectorAll(".nav-item").forEach(b=>b.classList.toggle("active",b.dataset.view===state.view));({home:renderHome,trials:renderTrials,members:renderMembers,payments:renderPayments,dashboard:renderDashboard}[state.view])()}
+function render(){document.querySelectorAll(".nav-item").forEach(b=>b.classList.toggle("active",b.dataset.view===state.view));({home:renderHome,trials:renderTrials,members:renderMembers,payments:renderPayments,didactics:renderDidactics,dashboard:renderDashboard}[state.view])()}
 document.querySelectorAll(".nav-item").forEach(b=>b.addEventListener("click",()=>{state.view=b.dataset.view;render()}));$("#syncBtn").addEventListener("click",loadAll);
+
+function nextCourseDate(){
+  const d=new Date(),seasonStart=new Date(CONFIG.SEASON_START+"T12:00:00");d.setHours(12,0,0,0);
+  if(d<seasonStart)d.setTime(seasonStart.getTime());
+  for(let i=0;i<8;i++){if(courseDay(d))return dateKey(d);d.setDate(d.getDate()+1)}
+  return todayKey();
+}
+function openDidacticsNote(date=""){
+  const selected=date||nextCourseDate();
+  const lesson=(state.lessons||[]).find(x=>x.date===selected);
+  const body='<label class="field-label" for="didacticsDate">Data lezione</label><input id="didacticsDate" class="big-input" type="date" value="'+esc(selected)+'" '+(date?'disabled':'')+'>'+
+    '<div class="didactics-tools"><button type="button" class="choice-btn" onclick="insertDidacticsTemplate()">STRUTTURA BASE</button><button type="button" class="choice-btn" onclick="copyPreviousDidactics()">COPIA PRECEDENTE</button></div>'+
+    '<label class="field-label" for="didacticsNotes">Programma e note</label><textarea id="didacticsNotes" class="big-input didactics-textarea" placeholder="– Riscaldamento&#10;  esercizi e quantità&#10;&#10;– Tecnica&#10;  progressioni e obiettivi&#10;&#10;– Applicazione&#10;  giochi o circuiti&#10;&#10;– Relax finale" autofocus>'+esc(lesson?.didactics||"")+'</textarea>';
+  openModal({id:"didacticsModal",eyebrow:lesson?"MODIFICA DIDATTICA":"NUOVA DIDATTICA",title:lesson?esc(fmtDate(selected)):"Programma lezione",body,actions:'<button class="secondary" onclick="closeModal(\'didacticsModal\')">ANNULLA</button><button class="primary didactics-save" onclick="saveDidacticsNote()">SALVA</button>'});
+}
+function insertDidacticsTemplate(){
+  const field=document.querySelector("#didacticsNotes");if(!field)return;
+  const template="– Riscaldamento\n  \n\n– Tecnica\n  \n\n– Applicazione\n  \n\n– Relax finale\n  ";
+  field.value=field.value.trim()?field.value.trim()+"\n\n"+template:template;field.focus();
+}
+function copyPreviousDidactics(){
+  const date=document.querySelector("#didacticsDate")?.value||todayKey();
+  const previous=(state.lessons||[]).filter(x=>x.date<date&&String(x.didactics||"").trim()).sort((a,b)=>b.date.localeCompare(a.date))[0];
+  if(!previous){toast("Nessuna didattica precedente");return}
+  const field=document.querySelector("#didacticsNotes");if(field){field.value=previous.didactics;field.focus()}
+}
+async function saveDidacticsNote(){
+  const lessonDate=document.querySelector("#didacticsDate")?.value,notes=document.querySelector("#didacticsNotes")?.value.trim();
+  if(!lessonDate){toast("Seleziona la data della lezione");document.querySelector("#didacticsDate")?.focus();return}
+  if(!notes){toast("Inserisci il programma della lezione");document.querySelector("#didacticsNotes")?.focus();return}
+  const btn=document.querySelector(".didactics-save");btn.disabled=true;btn.textContent="SALVATAGGIO…";
+  try{
+    await api("saveLessonDidactics",{lessonDate,notes});
+    const existing=(state.lessons||[]).find(x=>x.date===lessonDate);
+    if(existing)existing.didactics=notes;else state.lessons.push({date:lessonDate,didactics:notes,status:"Aperta"});
+    closeModal("didacticsModal");state.view="didactics";renderDidactics();toast("Didattica salvata");
+  }catch(e){btn.disabled=false;btn.textContent="SALVA";toast("Didattica non salvata: "+e.message)}
+}
 
 const presencePending=new Map();
 let presenceSaving=false;

@@ -14,7 +14,7 @@ const ADMIN = {
 };
 
 function doGet() {
-  return json_({ ok: true, service: 'Parkour Course OS Admin API', version: '1.3.0' });
+  return json_({ ok: true, service: 'Parkour Course OS Admin API', version: '1.4.0' });
 }
 
 function doPost(e) {
@@ -42,6 +42,7 @@ function doPost(e) {
     if (action === 'setMemberStatus') return json_(setMemberStatus_(data));
     if (action === 'updateMember') return json_(updateMember_(data));
     if (action === 'walkIn') return json_(createWalkIn_(data));
+    if (action === 'saveLessonDidactics') return json_(saveLessonDidactics_(data));
 
     return json_({ ok: false, error: 'Azione non valida.' });
   } catch (err) {
@@ -57,12 +58,14 @@ function authorize_(token) {
 }
 
 function bootstrap_() {
+  ensureLessonDidacticsSchema_();
   ensureIds_();
   return {
     today: todayPayload_(),
     trials: trialList_(),
     members: memberList_(),
     payments: paymentList_(),
+    lessons: lessonList_(),
     dashboard: dashboard_(),
     meta: {
       generatedAt: new Date().toISOString(),
@@ -157,6 +160,19 @@ function paymentList_() {
   })).filter(x => x.name).sort((a,b) => String(b.date).localeCompare(String(a.date))).slice(0,50);
 }
 
+function lessonList_() {
+  return table_(sheet_(ADMIN.sheets.lessons)).map(r => ({
+    id: str_(r['Lezione ID']),
+    date: dateKey_(r['Data']),
+    day: str_(r['Giorno']),
+    time: str_(r['Orario']),
+    spot: str_(r['Spot']),
+    status: str_(r['Stato']) || 'Aperta',
+    didactics: str_(r['Didattica']),
+    didacticsUpdatedAt: dateIso_(r['Didattica aggiornata'])
+  })).filter(x => x.date).sort((a,b) => String(b.date).localeCompare(String(a.date)));
+}
+
 function dashboard_() {
   const members = memberList_();
   const trials = trialList_();
@@ -181,6 +197,24 @@ function dashboard_() {
     netRevenue: revenue * 0.67,
     taxRevenue: revenue * 0.33
   };
+}
+
+function saveLessonDidactics_(d) {
+  const key=clean_(d.lessonDate||d.date);
+  const notes=str_(d.notes).slice(0,20000).trim();
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(key)) throw new Error('Data lezione non valida.');
+  if(!notes) throw new Error('Inserisci la didattica della lezione.');
+  ensureLessonDidacticsSchema_();
+  ensureLesson_(key);
+  const sh=sheet_(ADMIN.sheets.lessons),h=headers_(sh),rows=sh.getDataRange().getValues();
+  for(let i=1;i<rows.length;i++){
+    const r=rowObj_(h,rows[i]);
+    if(dateKey_(r['Data'])!==key) continue;
+    setCellByHeader_(sh,i+1,h,'Didattica',notes);
+    setCellByHeader_(sh,i+1,h,'Didattica aggiornata',new Date());
+    return {ok:true,date:key,notes};
+  }
+  throw new Error('Lezione non trovata.');
 }
 
 function togglePresence_(d) {
@@ -435,6 +469,18 @@ function ensureIds_() {
   ensureTableIds_(ADMIN.sheets.payments,'Pagamento ID','PAY');
   ensureTableIds_(ADMIN.sheets.attendance,'Presenza ID','ATT');
   backfillPersonLinks_();
+}
+
+function ensureLessonDidacticsSchema_(){
+  const sh=sheet_(ADMIN.sheets.lessons);
+  ensureColumn_(sh,'Didattica');
+  ensureColumn_(sh,'Didattica aggiornata');
+}
+
+function ensureColumn_(sh,name){
+  const h=headers_(sh);
+  if(h.indexOf(name)>=0)return;
+  sh.getRange(1,sh.getLastColumn()+1).setValue(name);
 }
 
 function ensureTableIds_(sheetName,header,prefix){

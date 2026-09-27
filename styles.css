@@ -134,7 +134,7 @@ label{display:block;font-size:12px;font-weight:800;margin-bottom:5px;color:var(-
 select,input{width:100%;padding:13px;border:1px solid var(--line);border-radius:13px;background:white}
 .bottom-nav{
   position:fixed;left:0;right:0;bottom:0;z-index:30;
-  display:grid;grid-template-columns:repeat(5,1fr);
+  display:grid;grid-template-columns:repeat(6,1fr);
   background:rgba(255,255,255,.96);backdrop-filter:blur(18px);
   border-top:1px solid var(--line);
   padding:8px 8px calc(8px + env(safe-area-inset-bottom))
@@ -216,5 +216,20 @@ select,input{width:100%;padding:13px;border:1px solid var(--line);border-radius:
 .detail-item.wide{grid-column:1/-1}
 .detail-item span{display:block;font-size:10px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px}
 .detail-item strong{display:block;color:var(--brand);font-size:14px;overflow-wrap:anywhere}
+.didactics-section{margin:18px 0 24px}
+.didactics-list{display:grid;gap:10px}
+.lesson-note-card{width:100%;display:flex;flex-direction:column;gap:12px;text-align:left;background:#fff;border:1px solid var(--line);border-radius:18px;padding:16px;color:var(--text);box-shadow:0 5px 18px rgba(22,42,35,.04)}
+.lesson-note-card:active{transform:scale(.995);background:#f8faf8}
+.lesson-note-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.lesson-note-head>span:first-child{min-width:0}
+.lesson-note-head strong{display:block;font-size:16px;text-transform:capitalize}
+.lesson-note-head small{display:block;color:var(--muted);font-size:11px;margin-top:3px}
+.lesson-note-preview{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:5;overflow:hidden;white-space:pre-line;color:#3f4945;font-size:14px;line-height:1.48}
+.lesson-note-edit{font-size:10px;font-weight:900;letter-spacing:.06em;color:var(--brand)}
+.didactics-empty{display:flex;flex-direction:column;gap:7px}
+.didactics-empty strong{color:var(--brand)}
+.didactics-tools{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px}
+.didactics-textarea{min-height:310px;resize:vertical;line-height:1.5;font-size:16px;white-space:pre-wrap}
+@media(max-width:430px){.nav-item small{font-size:9px}.nav-item span{font-size:18px}.bottom-nav{padding-left:3px;padding-right:3px}}
 @media(max-width:430px){.modal-backdrop{padding-left:8px;padding-right:8px}.app-modal{padding:18px 16px}.modal-actions{grid-template-columns:1fr}.choice-btn{min-height:50px}.big-input,.big-select{min-height:54px;font-size:16px}}
 @media(prefers-reduced-motion:reduce){.modal-backdrop,.app-modal{transition:none}}
