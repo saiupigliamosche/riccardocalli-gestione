@@ -1,7 +1,7 @@
-const CONFIG={VERSION:"0.8.1",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",ENROLLMENT_FORM:"https://form.jotform.com/262643062831050",SEASON_START:"2026-10-01",SEASON_END:"2027-06-09"};
+const CONFIG={VERSION:"0.8.2",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",ENROLLMENT_FORM:"https://form.jotform.com/262643062831050",SEASON_START:"2026-10-01",SEASON_END:"2027-06-09"};
 const now=new Date();
 const state={view:"home",today:null,trials:[],members:[],payments:[],lessons:[],dashboard:null,monthYear:now.getFullYear(),monthIndex:now.getMonth(),selectedDate:null};
-const memberDirectory={filter:"current",query:""};
+const memberDirectory={filter:"Attivo",query:""};
 const $=s=>document.querySelector(s),viewEl=$("#view"),titleEl=$("#pageTitle"),toastEl=$("#toast");
 const backend=()=>localStorage.getItem("parkour_admin_endpoint")||CONFIG.DEFAULT_API;
 const token=()=>localStorage.getItem("parkour_admin_token")||"";
@@ -217,17 +217,30 @@ function renderTrials(){
   }).join(""):'<div class="empty">Nessuna prova da gestire.</div>');
 }
 function memberStatusClass(status){return status==="Eliminato"||status==="Uscito"?"danger":status==="Sospeso"?"trial":"ok"}
+function memberPlanShort(p){
+  const plan=String(p.plan||"").toLowerCase();
+  const freq=String(p.frequency||"").toLowerCase();
+  const freqLabel=freq.includes("2")?"2×":freq.includes("giov")?"1× Gio":freq.includes("mart")?"1× Mar":"1×";
+  let planLabel="Piano non impostato";
+  if(plan.includes("annuale"))planLabel="Annuale";
+  else if(plan.includes("3 rate"))planLabel="3 rate";
+  else if(plan.includes("mese di prova"))planLabel="Mese prova";
+  return freqLabel+" · "+planLabel;
+}
 function memberRowHtml(p){
   const search=[p.name,p.status,p.plan,p.frequency].filter(Boolean).join(" ").toLowerCase();
-  return '<button class="member-row" data-member-row data-status="'+esc(p.status||"Attivo")+'" data-search="'+esc(search)+'" onclick="memberDetail(\''+esc(p.id)+'\')">'+
-    '<span class="avatar member-avatar">'+initials(p.name)+'</span><span class="person-main"><span class="person-name">'+esc(p.name)+'</span><span class="person-sub">'+esc(p.plan||"Piano non impostato")+' · '+esc(p.frequency||"frequenza non impostata")+'</span></span>'+
-    '<span class="member-row-end"><span class="badge '+memberStatusClass(p.status)+'">'+esc(p.status||"Attivo")+'</span><span class="member-chevron" aria-hidden="true">›</span></span></button>';
+  const freq=String(p.frequency||"").toLowerCase();
+  const freqKey=freq.includes("2")?"2x":"1x";
+  return '<button class="member-row" data-member-row data-status="'+esc(p.status||"Attivo")+'" data-frequency="'+freqKey+'" data-search="'+esc(search)+'" onclick="memberDetail(\''+esc(p.id)+'\')">'+
+    '<span class="member-row-main"><span class="person-name">'+esc(p.name)+'</span><span class="person-sub">'+esc(memberPlanShort(p))+'</span></span>'+
+    '<span class="member-row-end"><span class="member-status-dot '+memberStatusClass(p.status)+'" aria-hidden="true"></span><span class="member-status-text">'+esc(p.status||"Attivo")+'</span><span class="member-chevron" aria-hidden="true">›</span></span></button>';
 }
 function memberFilterCounts(rows){return{
-  current:rows.filter(x=>x.status!=="Eliminato").length,
+  all:rows.filter(x=>x.status!=="Eliminato").length,
   Attivo:rows.filter(x=>(x.status||"Attivo")==="Attivo").length,
-  Sospeso:rows.filter(x=>x.status==="Sospeso").length,
-  Uscito:rows.filter(x=>x.status==="Uscito").length,
+  "1x":rows.filter(x=>(x.status||"Attivo")==="Attivo"&&!String(x.frequency||"").toLowerCase().includes("2")).length,
+  "2x":rows.filter(x=>(x.status||"Attivo")==="Attivo"&&String(x.frequency||"").toLowerCase().includes("2")).length,
+  inactive:rows.filter(x=>x.status==="Sospeso"||x.status==="Uscito").length,
   Eliminato:rows.filter(x=>x.status==="Eliminato").length
 }}
 function memberFilterButton(value,label,count){return '<button type="button" class="member-filter '+(memberDirectory.filter===value?'selected':'')+'" data-member-filter="'+value+'" onclick="setMemberFilter(\''+value+'\')">'+label+' <span>'+count+'</span></button>'}
@@ -236,9 +249,15 @@ function applyMemberDirectory(){
   let visible=0;
   document.querySelectorAll("[data-member-row]").forEach(row=>{
     const status=row.dataset.status||"Attivo";
-    const statusMatches=memberDirectory.filter==="current"?status!=="Eliminato":status===memberDirectory.filter;
+    const freq=row.dataset.frequency||"1x";
+    let filterMatches=false;
+    if(memberDirectory.filter==="all")filterMatches=status!=="Eliminato";
+    else if(memberDirectory.filter==="Attivo")filterMatches=status==="Attivo";
+    else if(memberDirectory.filter==="1x"||memberDirectory.filter==="2x")filterMatches=status==="Attivo"&&freq===memberDirectory.filter;
+    else if(memberDirectory.filter==="inactive")filterMatches=status==="Sospeso"||status==="Uscito";
+    else if(memberDirectory.filter==="Eliminato")filterMatches=status==="Eliminato";
     const queryMatches=!query||(row.dataset.search||"").includes(query);
-    row.hidden=!(statusMatches&&queryMatches);
+    row.hidden=!(filterMatches&&queryMatches);
     if(!row.hidden)visible++;
   });
   const empty=document.querySelector("#memberListEmpty");
@@ -252,9 +271,9 @@ function renderMembers(){
   if(!backend()||!token()){viewEl.innerHTML=connectionCard();return}
   const rows=[...(state.members||[])].sort((a,b)=>String(a.name||"").localeCompare(String(b.name||""),"it",{sensitivity:"base"}));
   const counts=memberFilterCounts(rows);
-  viewEl.innerHTML='<div class="member-toolbar"><button class="primary member-add" onclick="newMember()">+ NUOVO ISCRITTO</button><label class="member-search"><span aria-hidden="true">⌕</span><input placeholder="Cerca per nome, piano o stato…" value="'+esc(memberDirectory.query)+'" oninput="searchMembers(this.value)"></label></div>'+
+  viewEl.innerHTML='<div class="member-toolbar"><label class="member-search"><span aria-hidden="true">⌕</span><input placeholder="Cerca iscritto…" value="'+esc(memberDirectory.query)+'" oninput="searchMembers(this.value)"></label><button class="primary member-add" onclick="newMember()">+ NUOVO</button></div>'+
     '<div class="member-filters" aria-label="Filtra iscritti">'+
-      memberFilterButton("current","Tutti",counts.current)+memberFilterButton("Attivo","Attivi",counts.Attivo)+memberFilterButton("Sospeso","Sospesi",counts.Sospeso)+memberFilterButton("Uscito","Usciti",counts.Uscito)+memberFilterButton("Eliminato","Eliminati",counts.Eliminato)+
+      memberFilterButton("Attivo","Attivi",counts.Attivo)+memberFilterButton("1x","1×",counts["1x"])+memberFilterButton("2x","2×",counts["2x"])+memberFilterButton("all","Tutti",counts.all)+memberFilterButton("inactive","Usciti / sospesi",counts.inactive)+memberFilterButton("Eliminato","Eliminati",counts.Eliminato)+
     '</div><div class="member-list" aria-label="Elenco iscritti">'+rows.map(memberRowHtml).join("")+'<div id="memberListEmpty" class="empty member-empty">Nessun iscritto corrisponde alla ricerca.</div></div>';
   applyMemberDirectory();
 }
@@ -672,56 +691,47 @@ function editMember(id){
 }
 function editChoiceGroup(label,group,items,selected){return '<div class="choice-section"><div class="field-label">'+label+'</div><div class="choice-grid">'+items.map(x=>'<button type="button" class="choice-btn '+(x[0]===selected?'selected':'')+'" data-edit-group="'+group+'" onclick="chooseEditOption(\''+group+'\',\''+x[0]+'\',this)">'+x[1]+'</button>').join('')+'</div></div>'}
 function chooseEditOption(group,value,btn){editDraft[group]=value;document.querySelectorAll('[data-edit-group="'+group+'"]').forEach(x=>x.classList.remove('selected'));btn.classList.add('selected');if(group==="frequency"){document.querySelector("#editDayGroup").style.display=value==="1"?"block":"none";editDraft.day=value==="1"?"Martedì":"Martedì+Giovedì"}}
-async function setMemberStatusRobust(personId,status){
-  try{
-    const result=await api("setMemberStatus",{personId,status});
-    const localMember=(state.members||[]).find(x=>x.id===personId);
-    if(localMember)localMember.status=status;
-    return result;
-  }catch(e){
-    const msg=String(e&&e.message||e||"");
-    if(!/load failed|failed to fetch|networkerror|network request failed/i.test(msg))throw e;
-
-    const payload=JSON.stringify({token:token(),action:"setMemberStatus",data:{personId,status}});
-    let queued=false;
-
-    if(navigator.sendBeacon){
-      try{
-        queued=navigator.sendBeacon(
-          backend(),
-          new Blob([payload],{type:"text/plain;charset=UTF-8"})
-        );
-      }catch(_){}
-    }
-
-    if(!queued){
-      try{
-        await fetch(backend(),{
-          method:"POST",
-          mode:"no-cors",
-          cache:"no-store",
-          credentials:"omit",
-          body:payload
-        });
-        queued=true;
-      }catch(_){}
-    }
-
-    if(!queued)throw e;
-
-    const localMember=(state.members||[]).find(x=>x.id===personId);
-    if(localMember)localMember.status=status;
-    setTimeout(()=>syncMemberStatusInBackground(personId,status),2200);
-    return {ok:true,queued:true};
+function sendMemberStatusWrite(personId,status){
+  const payload=JSON.stringify({token:token(),action:"setMemberStatus",data:{personId,status}});
+  let beaconQueued=false;
+  if(navigator.sendBeacon){
+    try{beaconQueued=navigator.sendBeacon(backend(),new Blob([payload],{type:"text/plain;charset=UTF-8"}))}catch(_){}
   }
+  try{
+    fetch(backend(),{
+      method:"POST",
+      mode:"no-cors",
+      cache:"no-store",
+      credentials:"omit",
+      keepalive:true,
+      body:payload
+    }).catch(()=>{});
+  }catch(_){}
+  return beaconQueued;
+}
+async function setMemberStatusRobust(personId,status){
+  const localMember=(state.members||[]).find(x=>x.id===personId);
+  if(localMember)localMember.status=status;
+  sendMemberStatusWrite(personId,status);
+  setTimeout(()=>syncMemberStatusInBackground(personId,status,0),1200);
+  return {ok:true,queued:true};
 }
 async function syncMemberStatusInBackground(personId,status,attempt=0){
   try{
     const fresh=await api("bootstrap");
     const member=(fresh.members||[]).find(x=>x.id===personId);
-    if(member?.status===status){Object.assign(state,fresh);if(state.view==="members")renderMembers();return}
+    if(member?.status===status){
+      Object.assign(state,fresh);
+      if(state.view==="members")renderMembers();
+      return;
+    }
   }catch(_){}
-  if(attempt<2)setTimeout(()=>syncMemberStatusInBackground(personId,status,attempt+1),1800*(attempt+1));
+  if(attempt<4){
+    sendMemberStatusWrite(personId,status);
+    setTimeout(()=>syncMemberStatusInBackground(personId,status,attempt+1),1400*(attempt+1));
+  }else{
+    toast("Modifica salvata localmente · sincronizzazione da verificare");
+  }
 }
 
 function confirmMemberDelete(id){
@@ -733,7 +743,7 @@ async function deleteMember(id){
   const member=(state.members||[]).find(x=>x.id===id);if(!member)return;
   try{
     await setMemberStatusRobust(id,"Eliminato");
-    memberDirectory.filter="current";
+    memberDirectory.filter="Attivo";
     renderMembers();
     toast("Studente spostato negli eliminati");
   }catch(e){showError(e.message,"Eliminazione non riuscita")}
