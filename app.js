@@ -1,4 +1,4 @@
-const CONFIG={VERSION:"0.8.3",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",ENROLLMENT_FORM:"https://form.jotform.com/262643062831050",SEASON_START:"2026-10-01",SEASON_END:"2027-06-09"};
+const CONFIG={VERSION:"0.8.4",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",ENROLLMENT_FORM:"https://form.jotform.com/262643062831050",SEASON_START:"2026-10-01",SEASON_END:"2027-06-09"};
 const now=new Date();
 const state={view:"home",today:null,trials:[],members:[],payments:[],lessons:[],dashboard:null,monthYear:now.getFullYear(),monthIndex:now.getMonth(),selectedDate:null};
 const memberDirectory={filter:"Attivo",query:""};
@@ -216,7 +216,10 @@ function renderTrials(){
     return '<div class="card trialCard" data-search="'+esc((p.name||"").toLowerCase())+'"><div class="card-row"><div><div class="card-title">'+esc(p.name)+'</div><div class="card-sub">'+(p.age||"—")+' anni · '+fmtDate(p.date)+'</div></div><span class="badge '+(converted||p.status==="Presentato"?"ok":"trial")+'">'+esc(p.status||"Prenotato")+'</span></div>'+actions+'</div>';
   }).join(""):'<div class="empty">Nessuna prova da gestire.</div>');
 }
-function memberStatusClass(status){return status==="Eliminato"||status==="Uscito"?"danger":status==="Sospeso"?"trial":"ok"}
+function isArchivedMember(member){return member?.status==="Eliminato"||(member?.status==="Uscito"&&member?.exitReason==="Archiviato dal gestionale")}
+function isPausedMember(member){return member?.status==="Sospeso"||member?.status==="In pausa"}
+function memberDisplayStatus(member){return isArchivedMember(member)?"Eliminato":member?.status||"Attivo"}
+function memberStatusClass(status){return status==="Eliminato"||status==="Uscito"?"danger":status==="Sospeso"||status==="In pausa"?"trial":"ok"}
 function memberPlanShort(p){
   const plan=String(p.plan||"").toLowerCase();
   const freq=String(p.frequency||"").toLowerCase();
@@ -228,20 +231,21 @@ function memberPlanShort(p){
   return freqLabel+" · "+planLabel;
 }
 function memberRowHtml(p){
-  const search=[p.name,p.status,p.plan,p.frequency].filter(Boolean).join(" ").toLowerCase();
+  const displayStatus=memberDisplayStatus(p);
+  const search=[p.name,displayStatus,p.plan,p.frequency].filter(Boolean).join(" ").toLowerCase();
   const freq=String(p.frequency||"").toLowerCase();
   const freqKey=freq.includes("2")?"2x":"1x";
-  return '<button class="member-row" data-member-row data-status="'+esc(p.status||"Attivo")+'" data-frequency="'+freqKey+'" data-search="'+esc(search)+'" onclick="memberDetail(\''+esc(p.id)+'\')">'+
+  return '<button class="member-row" data-member-row data-status="'+esc(displayStatus)+'" data-frequency="'+freqKey+'" data-search="'+esc(search)+'" onclick="memberDetail(\''+esc(p.id)+'\')">'+
     '<span class="member-row-main"><span class="person-name">'+esc(p.name)+'</span><span class="person-sub">'+esc(memberPlanShort(p))+'</span></span>'+
-    '<span class="member-row-end"><span class="member-status-dot '+memberStatusClass(p.status)+'" aria-hidden="true"></span><span class="member-status-text">'+esc(p.status||"Attivo")+'</span><span class="member-chevron" aria-hidden="true">›</span></span></button>';
+    '<span class="member-row-end"><span class="member-status-dot '+memberStatusClass(displayStatus)+'" aria-hidden="true"></span><span class="member-status-text">'+esc(displayStatus)+'</span><span class="member-chevron" aria-hidden="true">›</span></span></button>';
 }
 function memberFilterCounts(rows){return{
-  all:rows.filter(x=>x.status!=="Eliminato").length,
+  all:rows.filter(x=>!isArchivedMember(x)).length,
   Attivo:rows.filter(x=>(x.status||"Attivo")==="Attivo").length,
   "1x":rows.filter(x=>(x.status||"Attivo")==="Attivo"&&!String(x.frequency||"").toLowerCase().includes("2")).length,
   "2x":rows.filter(x=>(x.status||"Attivo")==="Attivo"&&String(x.frequency||"").toLowerCase().includes("2")).length,
-  inactive:rows.filter(x=>x.status==="Sospeso"||x.status==="Uscito").length,
-  Eliminato:rows.filter(x=>x.status==="Eliminato").length
+  inactive:rows.filter(x=>!isArchivedMember(x)&&(isPausedMember(x)||x.status==="Uscito")).length,
+  Eliminato:rows.filter(isArchivedMember).length
 }}
 function memberFilterButton(value,label,count){return '<button type="button" class="member-filter '+(memberDirectory.filter===value?'selected':'')+'" data-member-filter="'+value+'" onclick="setMemberFilter(\''+value+'\')">'+label+' <span>'+count+'</span></button>'}
 function applyMemberDirectory(){
@@ -254,7 +258,7 @@ function applyMemberDirectory(){
     if(memberDirectory.filter==="all")filterMatches=status!=="Eliminato";
     else if(memberDirectory.filter==="Attivo")filterMatches=status==="Attivo";
     else if(memberDirectory.filter==="1x"||memberDirectory.filter==="2x")filterMatches=status==="Attivo"&&freq===memberDirectory.filter;
-    else if(memberDirectory.filter==="inactive")filterMatches=status==="Sospeso"||status==="Uscito";
+    else if(memberDirectory.filter==="inactive")filterMatches=status==="Sospeso"||status==="In pausa"||status==="Uscito";
     else if(memberDirectory.filter==="Eliminato")filterMatches=status==="Eliminato";
     const queryMatches=!query||(row.dataset.search||"").includes(query);
     row.hidden=!(filterMatches&&queryMatches);
@@ -658,7 +662,7 @@ function memberDetail(id){
   const value=v=>v&&String(v).trim()?esc(v):"—";
   const body='<div class="detail-grid">'+
       '<div class="detail-item"><span>Età</span><strong>'+value(m.age)+'</strong></div>'+
-      '<div class="detail-item"><span>Stato</span><strong>'+value(m.status)+'</strong></div>'+
+      '<div class="detail-item"><span>Stato</span><strong>'+value(memberDisplayStatus(m))+'</strong></div>'+
       '<div class="detail-item"><span>Pacchetto</span><strong>'+value(m.plan)+'</strong></div>'+
       '<div class="detail-item"><span>Frequenza</span><strong>'+value(m.frequency)+'</strong></div>'+
       '<div class="detail-item"><span>Ultima presenza</span><strong>'+(m.lastAttendance?esc(fmtDate(m.lastAttendance)):"—")+'</strong></div>'+
@@ -666,7 +670,7 @@ function memberDetail(id){
       '<div class="detail-item wide"><span>Telefono</span><strong>'+value(m.phone)+'</strong></div>'+
       '<div class="detail-item wide"><span>Email</span><strong>'+value(m.email)+'</strong></div>'+
     '</div>';
-  const actions=m.status==="Eliminato"
+  const actions=isArchivedMember(m)
     ? '<button class="secondary" onclick="editMember(\''+esc(m.id)+'\')">MODIFICA</button><button class="primary" onclick="closeMemberDetail();restoreMember(\''+esc(m.id)+'\')">RIPRISTINA</button>'
     : '<button class="secondary" onclick="editMember(\''+esc(m.id)+'\')">MODIFICA</button><button class="primary" onclick="detailPayment(\''+esc(m.id)+'\')">PAGAMENTO</button>';
   openModal({id:"memberDetailModal",eyebrow:"DETTAGLI ISCRITTO",title:esc(m.name),body,actions});
@@ -677,7 +681,7 @@ let editDraft={frequency:"2",day:"Martedì+Giovedì",plan:"Annuale",status:"Atti
 function parseFrequency(value){const f=String(value||"").toLowerCase();if(f.includes("2"))return{frequency:"2",day:"Martedì+Giovedì"};return{frequency:"1",day:f.includes("giov")?"Giovedì":"Martedì"}}
 function editMember(id){
   const m=state.members.find(x=>x.id===id);if(!m)return;
-  const parsed=parseFrequency(m.frequency);editDraft={id,frequency:parsed.frequency,day:parsed.day,plan:m.plan||"Annuale",status:m.status||"Attivo"};
+  const parsed=parseFrequency(m.frequency),status=m.status==="Sospeso"?"In pausa":m.status||"Attivo";editDraft={id,frequency:parsed.frequency,day:parsed.day,plan:m.plan||"Annuale",status};
   const body='<label class="field-label">Nome e cognome</label><input id="editName" class="big-input" value="'+esc(m.name)+'" autocomplete="name" autofocus>'+
     '<label class="field-label">Età</label><input id="editAge" class="big-input" type="number" min="18" max="120" inputmode="numeric" value="'+esc(m.age||"")+'">'+
     '<label class="field-label">Telefono</label><input id="editPhone" class="big-input" type="tel" autocomplete="tel" value="'+esc(m.phone||"")+'">'+
@@ -685,8 +689,8 @@ function editMember(id){
     editChoiceGroup("Frequenza","frequency",[["1","1× settimana"],["2","2× settimana"]],editDraft.frequency)+
     '<div id="editDayGroup" style="display:'+(editDraft.frequency==="1"?'block':'none')+'">'+editChoiceGroup("Giorno","day",[["Martedì","Martedì"],["Giovedì","Giovedì"]],editDraft.day)+'</div>'+
     editChoiceGroup("Pacchetto","plan",[["Annuale","Annuale"],["3 rate","3 rate"],["Mese di prova","Mese di prova"]],editDraft.plan)+
-    editChoiceGroup("Stato","status",[["Attivo","Attivo"],["Sospeso","Sospeso"],["Uscito","Uscito"]],editDraft.status)+
-    (m.status!=="Eliminato"?'<button type="button" class="member-delete" onclick="confirmMemberDelete(\''+esc(m.id)+'\')">ELIMINA ISCRITTO</button>':'');
+    editChoiceGroup("Stato","status",[["Attivo","Attivo"],["In pausa","In pausa"],["Uscito","Uscito"]],editDraft.status)+
+    (!isArchivedMember(m)?'<button type="button" class="member-delete" onclick="confirmMemberDelete(\''+esc(m.id)+'\')">ELIMINA ISCRITTO</button>':'');
   openModal({id:"memberEditModal",eyebrow:"MODIFICA ISCRITTO",title:esc(m.name),body,actions:'<button class="secondary" onclick="closeModal(\'memberEditModal\')">ANNULLA</button><button class="primary edit-save" onclick="saveMemberEdit()">SALVA</button>'});
 }
 function editChoiceGroup(label,group,items,selected){return '<div class="choice-section"><div class="field-label">'+label+'</div><div class="choice-grid">'+items.map(x=>'<button type="button" class="choice-btn '+(x[0]===selected?'selected':'')+'" data-edit-group="'+group+'" onclick="chooseEditOption(\''+group+'\',\''+x[0]+'\',this)">'+x[1]+'</button>').join('')+'</div></div>'}
@@ -743,8 +747,9 @@ async function deleteMember(id){
   const member=(state.members||[]).find(x=>x.id===id);if(!member)return;
   try{
     const result=await api("archiveMember",{personId:id});
-    if(result?.status!=="Eliminato")throw new Error("Il backend non ha confermato l’eliminazione.");
-    member.status="Eliminato";
+    if(result?.status!=="Uscito"||result?.archived!==true)throw new Error("Il backend non ha confermato l’eliminazione.");
+    member.status="Uscito";
+    member.exitReason="Archiviato dal gestionale";
     memberDirectory.filter="Attivo";
     renderMembers();
     toast("Studente spostato negli eliminati");
@@ -780,7 +785,8 @@ function restoreMember(id){
     onConfirm:async()=>{
       try{
         await setMemberStatusRobust(id,"Attivo");
-        memberDirectory.filter="current";
+        m.exitReason="";
+        memberDirectory.filter="Attivo";
         renderMembers();
         toast("Studente ripristinato");
       }catch(e){showError(e.message,"Ripristino non riuscito")}
