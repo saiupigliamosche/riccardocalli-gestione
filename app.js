@@ -1,4 +1,4 @@
-const CONFIG={VERSION:"0.8.2",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",ENROLLMENT_FORM:"https://form.jotform.com/262643062831050",SEASON_START:"2026-10-01",SEASON_END:"2027-06-09"};
+const CONFIG={VERSION:"0.8.3",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",ENROLLMENT_FORM:"https://form.jotform.com/262643062831050",SEASON_START:"2026-10-01",SEASON_END:"2027-06-09"};
 const now=new Date();
 const state={view:"home",today:null,trials:[],members:[],payments:[],lessons:[],dashboard:null,monthYear:now.getFullYear(),monthIndex:now.getMonth(),selectedDate:null};
 const memberDirectory={filter:"Attivo",query:""};
@@ -742,7 +742,9 @@ function confirmMemberDelete(id){
 async function deleteMember(id){
   const member=(state.members||[]).find(x=>x.id===id);if(!member)return;
   try{
-    await setMemberStatusRobust(id,"Eliminato");
+    const result=await api("archiveMember",{personId:id});
+    if(result?.status!=="Eliminato")throw new Error("Il backend non ha confermato l’eliminazione.");
+    member.status="Eliminato";
     memberDirectory.filter="Attivo";
     renderMembers();
     toast("Studente spostato negli eliminati");

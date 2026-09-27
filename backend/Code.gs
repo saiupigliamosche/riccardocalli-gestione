@@ -14,7 +14,7 @@ const ADMIN = {
 };
 
 function doGet() {
-  return json_({ ok: true, service: 'Parkour Course OS Admin API', version: '1.4.0' });
+  return json_({ ok: true, service: 'Parkour Course OS Admin API', version: '1.4.1' });
 }
 
 function doPost(e) {
@@ -39,6 +39,7 @@ function doPost(e) {
     if (action === 'convertTrial') return json_(convertTrial_(data));
     if (action === 'setTrialStatus') return json_(setTrialStatus_(data));
     if (action === 'recordPayment') return json_(recordPayment_(data));
+    if (action === 'archiveMember') return json_(archiveMember_(data));
     if (action === 'setMemberStatus') return json_(setMemberStatus_(data));
     if (action === 'updateMember') return json_(updateMember_(data));
     if (action === 'walkIn') return json_(createWalkIn_(data));
@@ -417,17 +418,37 @@ function recordPayment_(d) {
 
 function setMemberStatus_(d) {
   const id=clean_(d.personId||d.id), status=clean_(d.status);
+  if(!id||!status) throw new Error('Stato iscritto non valido.');
   const sh=sheet_(ADMIN.sheets.members), headers=headers_(sh), rows=sh.getDataRange().getValues();
   const idCol=headers.indexOf('Persona ID'), statusCol=headers.indexOf('Stato');
+  if(idCol<0||statusCol<0) throw new Error('Colonne Persona ID o Stato mancanti.');
   for(let i=1;i<rows.length;i++){
     if(str_(rows[i][idCol])===id){
       sh.getRange(i+1,statusCol+1).setValue(status);
       const upd=headers.indexOf('Ultimo aggiornamento'); if(upd>=0) sh.getRange(i+1,upd+1).setValue(new Date());
-      if(status==='Uscito'){const c=headers.indexOf('Data uscita');if(c>=0)sh.getRange(i+1,c+1).setValue(new Date());}
-      return {ok:true};
+      if(status==='Uscito'||status==='Eliminato'){const c=headers.indexOf('Data uscita');if(c>=0)sh.getRange(i+1,c+1).setValue(new Date());}
+      SpreadsheetApp.flush();
+      const saved=str_(sh.getRange(i+1,statusCol+1).getDisplayValue());
+      if(saved!==status) throw new Error('Lo stato non è stato salvato nel foglio.');
+      return {ok:true,personId:id,status:saved};
     }
   }
   throw new Error('Iscritto non trovato.');
+}
+
+function archiveMember_(d) {
+  const id=clean_(d.personId||d.id);
+  if(!id) throw new Error('Iscritto non valido.');
+  const result=setMemberStatus_({personId:id,status:'Eliminato'});
+  const sh=sheet_(ADMIN.sheets.members), headers=headers_(sh), rows=sh.getDataRange().getValues();
+  const idCol=headers.indexOf('Persona ID');
+  for(let i=1;i<rows.length;i++){
+    if(str_(rows[i][idCol])!==id) continue;
+    setCellByHeader_(sh,i+1,headers,'Motivo uscita','Archiviato dal gestionale');
+    SpreadsheetApp.flush();
+    return result;
+  }
+  throw new Error('Iscritto non trovato dopo il salvataggio.');
 }
 
 function updateMember_(d) {
