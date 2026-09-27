@@ -1,4 +1,4 @@
-const CONFIG={VERSION:"0.8.0",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",ENROLLMENT_FORM:"https://form.jotform.com/262643062831050",SEASON_START:"2026-10-01",SEASON_END:"2027-06-09"};
+const CONFIG={VERSION:"0.8.1",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",ENROLLMENT_FORM:"https://form.jotform.com/262643062831050",SEASON_START:"2026-10-01",SEASON_END:"2027-06-09"};
 const now=new Date();
 const state={view:"home",today:null,trials:[],members:[],payments:[],lessons:[],dashboard:null,monthYear:now.getFullYear(),monthIndex:now.getMonth(),selectedDate:null};
 const memberDirectory={filter:"current",query:""};
@@ -266,9 +266,11 @@ function renderPayments(){
 }
 function lessonNoteCard(x){
   const today=todayKey(),label=x.date===today?"OGGI":x.date>today?"PROGRAMMATA":"SVOLTA";
-  return '<button class="lesson-note-card didacticsCard" data-search="'+esc((x.date+' '+x.didactics).toLowerCase())+'" onclick="openDidacticsNote(\''+esc(x.date)+'\')"><span class="lesson-note-head"><span><strong>'+esc(fmtDate(x.date))+'</strong><small>'+(x.spot?esc(x.spot):"Lezione Parkour")+'</small></span><span class="badge '+(x.date>=today?'trial':'ok')+'">'+label+'</span></span><span class="lesson-note-preview">'+esc(x.didactics)+'</span><span class="lesson-note-edit">APRI E MODIFICA ›</span></button>';
+  return '<article id="didactics-'+esc(x.date)+'" class="lesson-note-card didacticsCard" data-search="'+esc((x.date+' '+x.didactics).toLowerCase())+'"><header class="lesson-note-head"><span><strong>'+esc(fmtDate(x.date))+'</strong><small>'+(x.spot?esc(x.spot):"Lezione Parkour")+'</small></span><span class="badge '+(x.date>=today?'trial':'ok')+'">'+label+'</span></header><div class="lesson-note-body">'+esc(x.didactics)+'</div><button class="lesson-note-edit" onclick="openDidacticsNote(\''+esc(x.date)+'\')">MODIFICA LEZIONE <span aria-hidden="true">›</span></button></article>';
 }
-function lessonNoteSection(title,rows){return rows.length?'<section class="didactics-section"><div class="section-head"><h2>'+title+'</h2><span class="badge ok">'+rows.length+'</span></div><div class="didactics-list">'+rows.map(lessonNoteCard).join("")+'</div></section>':''}
+function lessonDateIndex(rows){return rows.length?'<nav class="didactics-index" aria-label="Vai a una lezione"><span>VAI A</span>'+rows.map(x=>'<button onclick="scrollToDidactics(\''+esc(x.date)+'\')">'+esc(new Intl.DateTimeFormat("it-IT",{day:"numeric",month:"short"}).format(new Date(x.date+"T12:00:00")))+'</button>').join("")+'</nav>':''}
+function scrollToDidactics(date){document.querySelector("#didactics-"+date)?.scrollIntoView({behavior:"smooth",block:"start"})}
+function lessonNoteSection(title,rows,{history=false}={}){return rows.length?'<section class="didactics-section '+(history?'didactics-history':'')+'"><div class="section-head didactics-section-head"><div><h2>'+title+'</h2>'+(history?'<small>Testo completo · lezioni più recenti prima</small>':'')+'</div><span class="badge ok">'+rows.length+'</span></div>'+(history?lessonDateIndex(rows.slice(0,10)):'')+'<div class="didactics-list">'+rows.map(lessonNoteCard).join("")+'</div></section>':''}
 function renderDidactics(){
   titleEl.textContent="Didattica";
   if(!backend()||!token()){viewEl.innerHTML=connectionCard();return}
@@ -277,7 +279,7 @@ function renderDidactics(){
   const upcoming=rows.filter(x=>x.date>=today).sort((a,b)=>a.date.localeCompare(b.date));
   const history=rows.filter(x=>x.date<today).sort((a,b)=>b.date.localeCompare(a.date));
   viewEl.innerHTML='<button class="primary" onclick="openDidacticsNote()">+ PROGRAMMA LEZIONE</button><div style="height:12px"></div><input class="search" placeholder="Cerca nella didattica…" oninput="filterCards(this.value,\'didacticsCard\')">'+
-    (rows.length?lessonNoteSection("PROSSIME LEZIONI",upcoming)+lessonNoteSection("STORICO",history):'<div class="empty didactics-empty"><strong>Nessuna didattica salvata</strong><span>Programma la prima lezione mantenendo lo stesso formato libero che usi nelle Note.</span></div>');
+    (rows.length?lessonNoteSection("PROSSIME LEZIONI",upcoming)+lessonNoteSection("LEZIONI PRECEDENTI",history,{history:true}):'<div class="empty didactics-empty"><strong>Nessuna didattica salvata</strong><span>Programma la prima lezione mantenendo lo stesso formato libero che usi nelle Note.</span></div>');
 }
 function renderDashboard(){
   titleEl.textContent="Dashboard";
@@ -305,7 +307,7 @@ function openDidacticsNote(date=""){
   const body='<label class="field-label" for="didacticsDate">Data lezione</label><input id="didacticsDate" class="big-input" type="date" value="'+esc(selected)+'" '+(date?'disabled':'')+'>'+
     '<div class="didactics-tools"><button type="button" class="choice-btn" onclick="insertDidacticsTemplate()">STRUTTURA BASE</button><button type="button" class="choice-btn" onclick="copyPreviousDidactics()">COPIA PRECEDENTE</button></div>'+
     '<label class="field-label" for="didacticsNotes">Programma e note</label><textarea id="didacticsNotes" class="big-input didactics-textarea" placeholder="– Riscaldamento&#10;  esercizi e quantità&#10;&#10;– Tecnica&#10;  progressioni e obiettivi&#10;&#10;– Applicazione&#10;  giochi o circuiti&#10;&#10;– Relax finale" autofocus>'+esc(lesson?.didactics||"")+'</textarea>';
-  openModal({id:"didacticsModal",eyebrow:lesson?"MODIFICA DIDATTICA":"NUOVA DIDATTICA",title:lesson?esc(fmtDate(selected)):"Programma lezione",body,actions:'<button class="secondary" onclick="closeModal(\'didacticsModal\')">ANNULLA</button><button class="primary didactics-save" onclick="saveDidacticsNote()">SALVA</button>'});
+  openModal({id:"didacticsModal",className:"didactics-modal",eyebrow:lesson?"MODIFICA DIDATTICA":"NUOVA DIDATTICA",title:lesson?esc(fmtDate(selected)):"Programma lezione",body,actions:'<button class="secondary" onclick="closeModal(\'didacticsModal\')">ANNULLA</button><button class="primary didactics-save" onclick="saveDidacticsNote()">SALVA</button>'});
 }
 function insertDidacticsTemplate(){
   const field=document.querySelector("#didacticsNotes");if(!field)return;
