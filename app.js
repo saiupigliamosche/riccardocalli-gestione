@@ -1,6 +1,7 @@
-const CONFIG={VERSION:"0.6.5",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",ENROLLMENT_FORM:"https://form.jotform.com/262643062831050"};
+const CONFIG={VERSION:"0.7.0",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",ENROLLMENT_FORM:"https://form.jotform.com/262643062831050"};
 const now=new Date();
 const state={view:"home",today:null,trials:[],members:[],payments:[],dashboard:null,monthYear:now.getFullYear(),monthIndex:now.getMonth(),selectedDate:null};
+const memberDirectory={filter:"current",query:""};
 const $=s=>document.querySelector(s),viewEl=$("#view"),titleEl=$("#pageTitle"),toastEl=$("#toast");
 const backend=()=>localStorage.getItem("parkour_admin_endpoint")||CONFIG.DEFAULT_API;
 const token=()=>localStorage.getItem("parkour_admin_token")||"";
@@ -215,26 +216,47 @@ function renderTrials(){
     return '<div class="card trialCard" data-search="'+esc((p.name||"").toLowerCase())+'"><div class="card-row"><div><div class="card-title">'+esc(p.name)+'</div><div class="card-sub">'+(p.age||"—")+' anni · '+fmtDate(p.date)+'</div></div><span class="badge '+(converted||p.status==="Presentato"?"ok":"trial")+'">'+esc(p.status||"Prenotato")+'</span></div>'+actions+'</div>';
   }).join(""):'<div class="empty">Nessuna prova da gestire.</div>');
 }
-function memberCardHtml(p,archived=false){
-  const badgeClass=archived?"danger":(p.risk==="ALTO"?"danger":"ok");
-  const actions=archived
-    ? '<div class="actions grid2"><button class="primary" onclick="restoreMember(\''+esc(p.id)+'\')">RIPRISTINA</button><button class="secondary" onclick="memberDetail(\''+esc(p.id)+'\')">DETTAGLI</button></div>'
-    : '<div class="actions grid2"><button class="primary" onclick="newPayment(\''+esc(p.id)+'\')">PAGAMENTO</button><button class="secondary" onclick="memberDetail(\''+esc(p.id)+'\')">DETTAGLI</button></div>';
-  return '<div class="card memberCard" data-search="'+esc((p.name||"").toLowerCase())+'"><div class="card-row"><div><div class="card-title">'+esc(p.name)+'</div><div class="card-sub">'+esc(p.plan||"Piano non impostato")+' · '+esc(p.frequency||"frequenza non impostata")+'</div></div><span class="badge '+badgeClass+'">'+esc(p.status||"Attivo")+'</span></div>'+actions+'</div>';
+function memberStatusClass(status){return status==="Eliminato"||status==="Uscito"?"danger":status==="Sospeso"?"trial":"ok"}
+function memberRowHtml(p){
+  const search=[p.name,p.status,p.plan,p.frequency].filter(Boolean).join(" ").toLowerCase();
+  return '<button class="member-row" data-member-row data-status="'+esc(p.status||"Attivo")+'" data-search="'+esc(search)+'" onclick="memberDetail(\''+esc(p.id)+'\')">'+
+    '<span class="avatar member-avatar">'+initials(p.name)+'</span><span class="person-main"><span class="person-name">'+esc(p.name)+'</span><span class="person-sub">'+esc(p.plan||"Piano non impostato")+' · '+esc(p.frequency||"frequenza non impostata")+'</span></span>'+
+    '<span class="member-row-end"><span class="badge '+memberStatusClass(p.status)+'">'+esc(p.status||"Attivo")+'</span><span class="member-chevron" aria-hidden="true">›</span></span></button>';
 }
+function memberFilterCounts(rows){return{
+  current:rows.filter(x=>x.status!=="Eliminato").length,
+  Attivo:rows.filter(x=>(x.status||"Attivo")==="Attivo").length,
+  Sospeso:rows.filter(x=>x.status==="Sospeso").length,
+  Uscito:rows.filter(x=>x.status==="Uscito").length,
+  Eliminato:rows.filter(x=>x.status==="Eliminato").length
+}}
+function memberFilterButton(value,label,count){return '<button type="button" class="member-filter '+(memberDirectory.filter===value?'selected':'')+'" data-member-filter="'+value+'" onclick="setMemberFilter(\''+value+'\')">'+label+' <span>'+count+'</span></button>'}
+function applyMemberDirectory(){
+  const query=memberDirectory.query.trim().toLowerCase();
+  let visible=0;
+  document.querySelectorAll("[data-member-row]").forEach(row=>{
+    const status=row.dataset.status||"Attivo";
+    const statusMatches=memberDirectory.filter==="current"?status!=="Eliminato":status===memberDirectory.filter;
+    const queryMatches=!query||(row.dataset.search||"").includes(query);
+    row.hidden=!(statusMatches&&queryMatches);
+    if(!row.hidden)visible++;
+  });
+  const empty=document.querySelector("#memberListEmpty");
+  if(empty)empty.hidden=visible>0;
+  document.querySelectorAll("[data-member-filter]").forEach(btn=>btn.classList.toggle("selected",btn.dataset.memberFilter===memberDirectory.filter));
+}
+function setMemberFilter(value){memberDirectory.filter=value;applyMemberDirectory()}
+function searchMembers(value){memberDirectory.query=value;applyMemberDirectory()}
 function renderMembers(){
   titleEl.textContent="Iscritti";
   if(!backend()||!token()){viewEl.innerHTML=connectionCard();return}
-  const rows=state.members||[];
-  const archived=rows.filter(x=>x.status==="Eliminato");
-  const current=rows.filter(x=>x.status!=="Eliminato");
-  const activeCount=current.filter(x=>x.status==="Attivo").length;
-  viewEl.innerHTML='<button class="primary" onclick="newMember()">+ NUOVO ISCRITTO</button><div style="height:12px"></div><input class="search" placeholder="Cerca uno studente…" oninput="filterCards(this.value,\'memberCard\')">'+
-    '<div class="section-head"><h2>Iscritti</h2><span class="badge ok">'+activeCount+' attivi</span></div>'+
-    (current.length?current.map(p=>memberCardHtml(p,false)).join(""):'<div class="empty">Nessun iscritto caricato.</div>')+
-    '<section class="section"><div class="section-head"><h2>Studenti eliminati</h2><span class="badge danger">'+archived.length+'</span></div>'+
-    (archived.length?archived.map(p=>memberCardHtml(p,true)).join(""):'<div class="empty">Nessuno studente eliminato.</div>')+
-    '</section>';
+  const rows=[...(state.members||[])].sort((a,b)=>String(a.name||"").localeCompare(String(b.name||""),"it",{sensitivity:"base"}));
+  const counts=memberFilterCounts(rows);
+  viewEl.innerHTML='<div class="member-toolbar"><button class="primary member-add" onclick="newMember()">+ NUOVO ISCRITTO</button><label class="member-search"><span aria-hidden="true">⌕</span><input placeholder="Cerca per nome, piano o stato…" value="'+esc(memberDirectory.query)+'" oninput="searchMembers(this.value)"></label></div>'+
+    '<div class="member-filters" aria-label="Filtra iscritti">'+
+      memberFilterButton("current","Tutti",counts.current)+memberFilterButton("Attivo","Attivi",counts.Attivo)+memberFilterButton("Sospeso","Sospesi",counts.Sospeso)+memberFilterButton("Uscito","Usciti",counts.Uscito)+memberFilterButton("Eliminato","Eliminati",counts.Eliminato)+
+    '</div><div class="member-list" aria-label="Elenco iscritti">'+rows.map(memberRowHtml).join("")+'<div id="memberListEmpty" class="empty member-empty">Nessun iscritto corrisponde alla ricerca.</div></div>';
+  applyMemberDirectory();
 }
 function renderPayments(){
   titleEl.textContent="Pagamenti";
@@ -587,14 +609,18 @@ function editMember(id){
     editChoiceGroup("Frequenza","frequency",[["1","1× settimana"],["2","2× settimana"]],editDraft.frequency)+
     '<div id="editDayGroup" style="display:'+(editDraft.frequency==="1"?'block':'none')+'">'+editChoiceGroup("Giorno","day",[["Martedì","Martedì"],["Giovedì","Giovedì"]],editDraft.day)+'</div>'+
     editChoiceGroup("Pacchetto","plan",[["Annuale","Annuale"],["3 rate","3 rate"],["Mese di prova","Mese di prova"]],editDraft.plan)+
-    editChoiceGroup("Stato","status",[["Attivo","Attivo"],["Sospeso","Sospeso"],["Uscito","Uscito"],["Eliminato","Elimina"]],editDraft.status);
+    editChoiceGroup("Stato","status",[["Attivo","Attivo"],["Sospeso","Sospeso"],["Uscito","Uscito"]],editDraft.status)+
+    (m.status!=="Eliminato"?'<button type="button" class="member-delete" onclick="confirmMemberDelete(\''+esc(m.id)+'\')">ELIMINA ISCRITTO</button>':'');
   openModal({id:"memberEditModal",eyebrow:"MODIFICA ISCRITTO",title:esc(m.name),body,actions:'<button class="secondary" onclick="closeModal(\'memberEditModal\')">ANNULLA</button><button class="primary edit-save" onclick="saveMemberEdit()">SALVA</button>'});
 }
 function editChoiceGroup(label,group,items,selected){return '<div class="choice-section"><div class="field-label">'+label+'</div><div class="choice-grid">'+items.map(x=>'<button type="button" class="choice-btn '+(x[0]===selected?'selected':'')+'" data-edit-group="'+group+'" onclick="chooseEditOption(\''+group+'\',\''+x[0]+'\',this)">'+x[1]+'</button>').join('')+'</div></div>'}
 function chooseEditOption(group,value,btn){editDraft[group]=value;document.querySelectorAll('[data-edit-group="'+group+'"]').forEach(x=>x.classList.remove('selected'));btn.classList.add('selected');if(group==="frequency"){document.querySelector("#editDayGroup").style.display=value==="1"?"block":"none";editDraft.day=value==="1"?"Martedì":"Martedì+Giovedì"}}
 async function setMemberStatusRobust(personId,status){
   try{
-    return await api("setMemberStatus",{personId,status});
+    const result=await api("setMemberStatus",{personId,status});
+    const localMember=(state.members||[]).find(x=>x.id===personId);
+    if(localMember)localMember.status=status;
+    return result;
   }catch(e){
     const msg=String(e&&e.message||e||"");
     if(!/load failed|failed to fetch|networkerror|network request failed/i.test(msg))throw e;
@@ -626,22 +652,34 @@ async function setMemberStatusRobust(personId,status){
 
     if(!queued)throw e;
 
-    await new Promise(r=>setTimeout(r,1400));
-
-    try{
-      const fresh=await api("bootstrap");
-      const member=(fresh.members||[]).find(x=>x.id===personId);
-      if(!member||member.status!==status)throw new Error("Aggiornamento non confermato dal backend.");
-      Object.assign(state,fresh);
-    }catch(verifyErr){
-      const verifyMsg=String(verifyErr&&verifyErr.message||verifyErr||"");
-      if(!/load failed|failed to fetch|networkerror|network request failed/i.test(verifyMsg))throw verifyErr;
-      const localMember=(state.members||[]).find(x=>x.id===personId);
-      if(localMember)localMember.status=status;
-    }
-
-    return {ok:true};
+    const localMember=(state.members||[]).find(x=>x.id===personId);
+    if(localMember)localMember.status=status;
+    setTimeout(()=>syncMemberStatusInBackground(personId,status),2200);
+    return {ok:true,queued:true};
   }
+}
+async function syncMemberStatusInBackground(personId,status,attempt=0){
+  try{
+    const fresh=await api("bootstrap");
+    const member=(fresh.members||[]).find(x=>x.id===personId);
+    if(member?.status===status){Object.assign(state,fresh);if(state.view==="members")renderMembers();return}
+  }catch(_){}
+  if(attempt<2)setTimeout(()=>syncMemberStatusInBackground(personId,status,attempt+1),1800*(attempt+1));
+}
+
+function confirmMemberDelete(id){
+  const member=(state.members||[]).find(x=>x.id===id);if(!member)return;
+  closeModal("memberEditModal");
+  showConfirm({eyebrow:"ARCHIVIO STUDENTI",title:"Elimina "+member.name,message:"Lo studente verrà spostato tra gli eliminati. Pagamenti e presenze resteranno nello storico e potrai ripristinarlo in seguito.",confirmLabel:"ELIMINA",danger:true,onConfirm:()=>deleteMember(id)});
+}
+async function deleteMember(id){
+  const member=(state.members||[]).find(x=>x.id===id);if(!member)return;
+  try{
+    await setMemberStatusRobust(id,"Eliminato");
+    memberDirectory.filter="current";
+    renderMembers();
+    toast("Studente spostato negli eliminati");
+  }catch(e){showError(e.message,"Eliminazione non riuscita")}
 }
 
 async function saveMemberEdit(){
@@ -650,13 +688,9 @@ async function saveMemberEdit(){
   const frequency=editDraft.frequency==="2"?"2x/settimana - Martedì+Giovedì":"1x/settimana - "+editDraft.day;
   const btn=document.querySelector(".edit-save");btn.disabled=true;btn.textContent="SALVATAGGIO…";
   try{
-    if(editDraft.status==="Eliminato"){
-      await setMemberStatusRobust(editDraft.id,"Eliminato");
-    }else{
-      await api("updateMember",{personId:editDraft.id,name,age,phone,email,frequency,plan:editDraft.plan,status:editDraft.status});
-    }
+    await api("updateMember",{personId:editDraft.id,name,age,phone,email,frequency,plan:editDraft.plan,status:editDraft.status});
     closeModal("memberEditModal");
-    toast(editDraft.status==="Eliminato"?"Studente eliminato":"Dati aggiornati");
+    toast("Dati aggiornati");
     await loadAll();
     state.view="members";
     render();
@@ -676,10 +710,10 @@ function restoreMember(id){
     confirmLabel:"RIPRISTINA",
     onConfirm:async()=>{
       try{
-        await api("setMemberStatus",{personId:id,status:"Attivo"});
+        await setMemberStatusRobust(id,"Attivo");
+        memberDirectory.filter="current";
+        renderMembers();
         toast("Studente ripristinato");
-        await loadAll();
-        state.view="members";render();
       }catch(e){showError(e.message,"Ripristino non riuscito")}
     }
   });
