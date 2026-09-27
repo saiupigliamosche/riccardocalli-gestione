@@ -14,7 +14,7 @@ const ADMIN = {
 };
 
 function doGet() {
-  return json_({ ok: true, service: 'Parkour Course OS Admin API', version: '1.2.0' });
+  return json_({ ok: true, service: 'Parkour Course OS Admin API', version: '1.3.0' });
 }
 
 function doPost(e) {
@@ -161,41 +161,25 @@ function dashboard_() {
   const members = memberList_();
   const trials = trialList_();
   const payments = paymentListAll_();
-  const campaigns = table_(sheet_(ADMIN.sheets.campaigns));
-  const activeMembers = members.filter(x => x.status === 'Attivo').length;
-  const adMembers = members.filter(x => x.origin === 'Ads' && x.status === 'Attivo').length;
+  const active = members.filter(x => x.status === 'Attivo');
+  const activeMembers = active.length;
+  const membersTwiceWeekly = active.filter(x => /^2/.test(str_(x.frequency))).length;
+  const membersOnceWeekly = active.filter(x => /^1/.test(str_(x.frequency))).length;
   const bookings = trials.filter(x => !['Annullato'].includes(x.status)).length;
-
-  const now = new Date();
-  const weekEnd = new Date(now); weekEnd.setDate(weekEnd.getDate() + 7);
-  const weekTrials = trials.filter(x => {
-    if (!x.date) return false;
-    const d = parseKey_(x.date);
-    return d >= dayStart_(now) && d <= dayEnd_(weekEnd) && x.status !== 'Annullato';
-  }).length;
-
-  const completedTrials = trials.filter(x => x.present === true).length;
-  const paidTrials = trials.filter(x => x.paid === true).length;
-  const trialToPaid = completedTrials ? paidTrials / completedTrials : 0;
-
-  const spend = campaigns.reduce((s,r) => s + num_(r['Spesa']),0);
-  const cac = adMembers ? spend / adMembers : 0;
   const revenue = payments.reduce((s,p) => s + num_(p.amount),0);
-  const adRevenue = payments.filter(p=>p.origin==='Ads').reduce((s,p)=>s+num_(p.amount),0);
-  const roas = spend ? adRevenue / spend : 0;
+  const currentMonth = Utilities.formatDate(new Date(), ADMIN.timezone, 'yyyy-MM');
+  const currentMonthRevenue = payments.filter(p => p.month === currentMonth).reduce((s,p) => s + num_(p.amount),0);
 
   return {
     activeMembers,
-    adMembers,
     bookings,
-    weekTrials,
-    trialToPaid,
-    cac,
+    membersTwiceWeekly,
+    membersOnceWeekly,
     revenue,
-    spend,
-    adRevenue,
-    roas,
-    atRisk: members.filter(x => x.risk === 'ALTO').length
+    currentMonthRevenue,
+    averageMonthlyRevenue: revenue / 9,
+    netRevenue: revenue * 0.67,
+    taxRevenue: revenue * 0.33
   };
 }
 
@@ -545,7 +529,7 @@ function updateTrialFields_(bookingId,fields){const sh=sheet_(ADMIN.sheets.trial
 function findTrial_(id){return trialList_().find(x=>x.id===id)||null;}
 function findTrialEntity_(id){return trialList_().find(x=>x.id===id||x.personId===id)||null;}
 function findMember_(id,quiet){const m=memberList_().find(x=>x.id===id)||null;if(!m&&!quiet)throw new Error('Iscritto non trovato.');return m;}
-function paymentListAll_(){return table_(sheet_(ADMIN.sheets.payments)).map(r=>({amount:num_(r['Importo']),origin:str_(r['Origine acquisizione'])}));}
+function paymentListAll_(){return table_(sheet_(ADMIN.sheets.payments)).map(r=>({amount:num_(r['Importo']),month:monthKey_(r['Data'])}));}
 
 function sheet_(name){const sh=SpreadsheetApp.openById(ADMIN.spreadsheetId).getSheetByName(name);if(!sh)throw new Error('Foglio mancante: '+name);return sh;}
 function headers_(sh){return sh.getRange(1,1,1,sh.getLastColumn()).getValues()[0].map(str_);}
@@ -558,6 +542,7 @@ function config_(key){const rows=sheet_(ADMIN.sheets.config).getDataRange().getV
 function id_(prefix){return prefix+'-'+Date.now().toString(36).toUpperCase()+'-'+Utilities.getUuid().slice(0,8).toUpperCase();}
 function lessonId_(key){return 'LES-'+String(key).replace(/-/g,'');}
 function dateKey_(v){if(v instanceof Date&&!isNaN(v))return Utilities.formatDate(v,ADMIN.timezone,'yyyy-MM-dd');if(/^\d{4}-\d{2}-\d{2}$/.test(str_(v)))return str_(v);return'';}
+function monthKey_(v){if(v instanceof Date&&!isNaN(v))return Utilities.formatDate(v,ADMIN.timezone,'yyyy-MM');const m=str_(v).match(/^(\d{4}-\d{2})/);return m?m[1]:'';}
 function dateIso_(v){return v instanceof Date&&!isNaN(v)?v.toISOString():dateKey_(v);}
 function parseKey_(s){const p=String(s).split('-').map(Number);return new Date(p[0],p[1]-1,p[2]);}
 function dayStart_(d){const x=new Date(d);x.setHours(0,0,0,0);return x;}function dayEnd_(d){const x=new Date(d);x.setHours(23,59,59,999);return x;}

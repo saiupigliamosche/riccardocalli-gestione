@@ -1,4 +1,4 @@
-const CONFIG={VERSION:"0.7.0",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",ENROLLMENT_FORM:"https://form.jotform.com/262643062831050"};
+const CONFIG={VERSION:"0.7.1",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",ENROLLMENT_FORM:"https://form.jotform.com/262643062831050"};
 const now=new Date();
 const state={view:"home",today:null,trials:[],members:[],payments:[],dashboard:null,monthYear:now.getFullYear(),monthIndex:now.getMonth(),selectedDate:null};
 const memberDirectory={filter:"current",query:""};
@@ -268,8 +268,10 @@ function renderDashboard(){
   titleEl.textContent="Dashboard";
   if(!backend()||!token()){viewEl.innerHTML=connectionCard();return}
   const d=state.dashboard||{};
-  const m=[["Iscritti attivi",d.activeMembers??"—","35–40"],["Nuovi da ads",d.adMembers??"—",""],["Prove prenotate",d.bookings??"—",""],["Prove settimana",d.weekTrials??"—",""],["Trial → pagante",d.trialToPaid!=null?Math.round(d.trialToPaid*100)+"%":"—",""],["CAC pagante",d.cac!=null?money(d.cac):"—",""],["Incassato stagione",d.revenue!=null?money(d.revenue):"—",""],["ROAS ads",d.roas!=null?Number(d.roas).toFixed(2)+"x":"—",""],["A rischio drop",d.atRisk??"—",""]];
-  viewEl.innerHTML='<div class="grid2">'+m.map(x=>'<div class="kpi"><strong>'+x[1]+'</strong><span>'+x[0]+(x[2]?" · "+x[2]:"")+'</span></div>').join("")+'</div><div class="actions"><button class="secondary" onclick="disconnectBackend()">DISCONNETTI QUESTO DISPOSITIVO</button></div>';
+  const course=[["Iscritti attivi",d.activeMembers??"—"],["2× a settimana",d.membersTwiceWeekly??"—"],["1× a settimana",d.membersOnceWeekly??"—"],["Prove prenotate",d.bookings??"—"]];
+  const finance=[["Incasso stagione",d.revenue!=null?money(d.revenue):"—","Totale registrato","total"],["Incasso mese corrente",d.currentMonthRevenue!=null?money(d.currentMonthRevenue):"—",""],["Media mensile",d.averageMonthlyRevenue!=null?money(d.averageMonthlyRevenue):"—","Totale ÷ 9 mesi"],["Netto stimato",d.netRevenue!=null?money(d.netRevenue):"—","67% del totale"],["Tasse stimate",d.taxRevenue!=null?money(d.taxRevenue):"—","33% del totale"]];
+  const cards=items=>items.map(x=>'<div class="kpi dashboard-kpi '+(x[3]==="total"?'dashboard-total':'')+'"><strong>'+x[1]+'</strong><span>'+x[0]+'</span>'+(x[2]?'<small>'+x[2]+'</small>':'')+'</div>').join("");
+  viewEl.innerHTML='<section class="dashboard-section"><div class="section-head"><h2>Corso</h2></div><div class="dashboard-grid">'+cards(course)+'</div></section><section class="dashboard-section"><div class="section-head"><h2>Economia</h2></div><div class="dashboard-grid dashboard-finance">'+cards(finance)+'</div></section><div class="actions"><button class="secondary" onclick="disconnectBackend()">DISCONNETTI QUESTO DISPOSITIVO</button></div>';
 }
 function filterCards(q,cls){q=q.toLowerCase();document.querySelectorAll("."+cls).forEach(el=>el.style.display=(el.dataset.search||"").includes(q)?"":"none")}
 async function loadAll(){viewEl.innerHTML='<div class="skeleton"></div>';try{if(backend()&&token())Object.assign(state,await api("bootstrap"))}catch(e){showError(e.message,"Dati non caricati")}render()}
