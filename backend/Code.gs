@@ -9,12 +9,16 @@ const ADMIN = {
     attendance: 'Presenze',
     lessons: 'Lezioni',
     campaigns: 'Campagne',
-    config: 'Config'
+    config: 'Config',
+    deadlines: 'Scadenze',
+    documents: 'Documenti',
+    rsvps: 'Conferme lezioni',
+    memberAccess: 'Accessi iscritti'
   }
 };
 
 function doGet() {
-  return json_({ ok: true, service: 'Parkour Course OS Admin API', version: '1.4.2' });
+  return json_({ ok: true, service: 'Parkour Course OS API', version: '1.5.0' });
 }
 
 function doPost(e) {
@@ -26,11 +30,13 @@ function doPost(e) {
     }
 
     const p = JSON.parse((e && e.postData && e.postData.contents) || '{}');
-    authorize_(p.token);
-    lock.waitLock(10000);
-
     const action = clean_(p.action);
     const data = p.data || {};
+    lock.waitLock(10000);
+
+    if (isMemberPortalAction_(action)) return json_(dispatchMemberPortalAction_(action, data));
+
+    authorize_(p.token);
 
     if (action === 'bootstrap') return json_({ ok: true, data: bootstrap_() });
     if (action === 'togglePresence') return json_(togglePresence_(data));
@@ -44,6 +50,11 @@ function doPost(e) {
     if (action === 'updateMember') return json_(updateMember_(data));
     if (action === 'walkIn') return json_(createWalkIn_(data));
     if (action === 'saveLessonDidactics') return json_(saveLessonDidactics_(data));
+    if (action === 'updateDeadline') return json_(updateDeadline_(data));
+    if (action === 'uploadMemberDocument') return json_(uploadMemberDocument_(data));
+    if (action === 'deleteMemberDocument') return json_(deleteMemberDocument_(data));
+    if (action === 'sendMemberAccessLink') return json_(sendMemberAccessLink_(data));
+    if (action === 'installPortalAutomation') return json_(installMemberPortalAutomation_());
 
     return json_({ ok: false, error: 'Azione non valida.' });
   } catch (err) {
@@ -61,6 +72,8 @@ function authorize_(token) {
 function bootstrap_() {
   ensureLessonDidacticsSchema_();
   ensureIds_();
+  ensureMemberPortalSchema_();
+  ensureAllMemberDeadlines_();
   return {
     today: todayPayload_(),
     trials: trialList_(),
@@ -68,6 +81,7 @@ function bootstrap_() {
     payments: paymentList_(),
     lessons: lessonList_(),
     dashboard: dashboard_(),
+    portal: portalAdminData_(),
     meta: {
       generatedAt: new Date().toISOString(),
       owner: ADMIN.ownerEmail
@@ -397,6 +411,7 @@ function recordPayment_(d) {
   const amount=num_(d.amount);
   if(!name||amount<=0) throw new Error('Pagamento non valido.');
 
+  const paymentId=id_('PAY');
   appendByHeaders_(sheet_(ADMIN.sheets.payments),{
     'Data':new Date(),
     'Nome e cognome':name,
@@ -406,7 +421,7 @@ function recordPayment_(d) {
     'Fattura emessa':clean_(d.invoiced||'No'),
     'Periodo/Rata':clean_(d.installment),
     'Note':clean_(d.note),
-    'Pagamento ID':id_('PAY'),
+    'Pagamento ID':paymentId,
     'Persona ID':personId,
     'Origine acquisizione':clean_(d.origin || (member&&member.origin)),
     'Campagna':clean_(d.campaign || (member&&member.campaign)),
@@ -414,7 +429,8 @@ function recordPayment_(d) {
     'Registrato da':ADMIN.ownerEmail,
     'Timestamp':new Date()
   });
-  return {ok:true};
+  if(personId && typeof settleNextDeadline_==='function') settleNextDeadline_(personId,amount,paymentId);
+  return {ok:true,paymentId};
 }
 
 function setMemberStatus_(d) {
@@ -490,6 +506,7 @@ function createWalkIn_(d) {
     'Data iscrizione':new Date(),'Pacchetto':clean_(d.plan),'Frequenza':clean_(d.frequency),'Stato':'Attivo',
     'Origine acquisizione':'Altro','Note':'Inserito dal gestionale come persona non prevista','Ultimo aggiornamento':new Date()
   });
+  if(typeof ensureMemberDeadlines_==='function') ensureMemberDeadlines_(findMember_(personId));
   return {ok:true,personId};
 }
 

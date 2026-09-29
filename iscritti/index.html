@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#17352e">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Parkour Padova">
+  <title>Area iscritti · Parkour Padova</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="styles.css?v=1.0.0">
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <div><div class="eyebrow">CORSO PARKOUR PADOVA</div><h1 id="pageTitle">Area iscritti</h1></div>
+      <button id="profileBtn" class="avatar-button" type="button" aria-label="Profilo" hidden>?</button>
+    </header>
+    <main id="view" class="view" aria-live="polite"></main>
+    <nav id="bottomNav" class="bottom-nav" aria-label="Navigazione" hidden>
+      <button data-view="home" class="active"><span>●</span><small>Home</small></button>
+      <button data-view="payments"><span>€</span><small>Pagamenti</small></button>
+      <button data-view="documents"><span>▤</span><small>Documenti</small></button>
+    </nav>
+  </div>
+  <div id="toast" class="toast" hidden></div>
+  <script src="app.js?v=1.0.0" defer></script>
+</body>
+</html>

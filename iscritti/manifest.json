@@ -1,0 +1,12 @@
+{
+  "name":"Area iscritti · Corso Parkour Padova",
+  "short_name":"Parkour Padova",
+  "description":"Presenze previste, pagamenti e documenti del Corso Parkour Padova",
+  "start_url":"./",
+  "scope":"./",
+  "display":"standalone",
+  "background_color":"#f4f5f1",
+  "theme_color":"#17352e",
+  "lang":"it-IT",
+  "orientation":"portrait-primary"
+}

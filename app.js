@@ -1,6 +1,6 @@
-const CONFIG={VERSION:"0.8.4",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",ENROLLMENT_FORM:"https://form.jotform.com/262643062831050",SEASON_START:"2026-10-01",SEASON_END:"2027-06-09"};
+const CONFIG={VERSION:"0.9.0",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",ENROLLMENT_FORM:"https://form.jotform.com/262643062831050",SEASON_START:"2026-10-01",SEASON_END:"2027-06-09"};
 const now=new Date();
-const state={view:"home",today:null,trials:[],members:[],payments:[],lessons:[],dashboard:null,monthYear:now.getFullYear(),monthIndex:now.getMonth(),selectedDate:null};
+const state={view:"home",today:null,trials:[],members:[],payments:[],lessons:[],dashboard:null,portal:{deadlines:[],documents:[],rsvps:[]},monthYear:now.getFullYear(),monthIndex:now.getMonth(),selectedDate:null};
 const memberDirectory={filter:"Attivo",query:""};
 const $=s=>document.querySelector(s),viewEl=$("#view"),titleEl=$("#pageTitle"),toastEl=$("#toast");
 const backend=()=>localStorage.getItem("parkour_admin_endpoint")||CONFIG.DEFAULT_API;
@@ -107,7 +107,7 @@ function saveBackendToken(){const tk=document.querySelector("#adminToken")?.valu
 function disconnectBackend(){
   showConfirm({eyebrow:"SICUREZZA",title:"Disconnetti dispositivo",message:"Il token amministratore verrà rimosso solo da questo dispositivo.",confirmLabel:"DISCONNETTI",danger:true,onConfirm:()=>{
     localStorage.removeItem("parkour_admin_token");
-    Object.assign(state,{today:null,trials:[],members:[],payments:[],lessons:[],dashboard:null});
+    Object.assign(state,{today:null,trials:[],members:[],payments:[],lessons:[],dashboard:null,portal:{deadlines:[],documents:[],rsvps:[]}});
     render();
   }});
 }
@@ -176,6 +176,7 @@ function lessonDetail(){
   });
   const members=expectedMembersForSelectedDate(key);
   let html='<section class="section"><div class="card"><div class="card-row"><div><div class="card-title">'+esc(fmtDate(key))+'</div><div class="card-sub">19:00–20:30 · La Cittadella della Stanga · '+members.length+' iscritti previsti · '+trials.length+' prove</div><div class="card-sub"><a href="https://maps.app.goo.gl/G5zFoprsZqDC37xw6" target="_blank" rel="noopener">Apri su Google Maps</a></div></div><span class="badge ok">LEZIONE</span></div></div>';
+  html+=rsvpAdminSummary(key);
   html+=personSection("ISCRITTI PREVISTI",members,false);
   if(trials.length){
     html+='<div class="section-head"><h2>IN PROVA</h2><span class="badge trial">'+trials.length+'</span></div>';
@@ -190,6 +191,12 @@ function lessonDetail(){
   html+='<div class="actions"><button class="primary confirm-lesson-btn '+(confirmed?"confirmed":"")+'" onclick="openLessonConfirm()">'+(confirmed?"LEZIONE CONFERMATA ✓":"CONFERMA LEZIONE")+'</button></div>';
   html+='<div class="empty attendance-hint">Tocca i presenti: la selezione è immediata. Quando hai finito, Conferma lezione registra come assenti solo le persone previste per questa data che non hai selezionato.</div>';
   return html+'</section>';
+}
+function rsvpAdminSummary(key){
+  const rows=(state.portal?.rsvps||[]).filter(x=>x.date===key),yes=rows.filter(x=>x.response==="Sì"),no=rows.filter(x=>x.response==="No"),waiting=rows.filter(x=>x.response!=="Sì"&&x.response!=="No");
+  if(!rows.length)return '<div class="rsvp-admin empty">Le conferme anticipate compariranno qui quando l’area iscritti sarà attiva per questa lezione.</div>';
+  const names=list=>list.length?list.map(x=>esc(x.name)).join(", "):"Nessuno";
+  return '<section class="rsvp-admin"><div class="section-head"><h2>CONFERME ANTICIPATE</h2><span class="badge ok">'+yes.length+'/'+rows.length+'</span></div><div class="rsvp-admin-counts"><div><strong>'+yes.length+'</strong><span>Ci saranno</span></div><div><strong>'+no.length+'</strong><span>Non ci saranno</span></div><div><strong>'+waiting.length+'</strong><span>In attesa</span></div></div><details open><summary>Presenti confermati</summary><p>'+names(yes)+'</p></details><details><summary>Assenti e in attesa</summary><p><b>No:</b> '+names(no)+'</p><p><b>In attesa:</b> '+names(waiting)+'</p></details></section>';
 }
 function personSection(title,list,trial){
   return '<section class="section"><div class="section-head"><h2>'+title+'</h2><span class="badge '+(trial?"trial":"ok")+'">'+list.length+'</span></div><div class="person-list">'+
@@ -311,7 +318,11 @@ function renderDashboard(){
   const course=[["Iscritti attivi",d.activeMembers??"—"],["2× a settimana",d.membersTwiceWeekly??"—"],["1× a settimana",d.membersOnceWeekly??"—"],["Prove prenotate",d.bookings??"—"]];
   const finance=[["Incasso stagione",d.revenue!=null?money(d.revenue):"—","Totale registrato","total"],["Incasso mese corrente",d.currentMonthRevenue!=null?money(d.currentMonthRevenue):"—",""],["Media mensile",d.averageMonthlyRevenue!=null?money(d.averageMonthlyRevenue):"—","Totale ÷ 9 mesi"],["Netto stimato",d.netRevenue!=null?money(d.netRevenue):"—","67% del totale"],["Tasse stimate",d.taxRevenue!=null?money(d.taxRevenue):"—","33% del totale"]];
   const cards=items=>items.map(x=>'<div class="kpi dashboard-kpi '+(x[3]==="total"?'dashboard-total':'')+'"><strong>'+x[1]+'</strong><span>'+x[0]+'</span>'+(x[2]?'<small>'+x[2]+'</small>':'')+'</div>').join("");
-  viewEl.innerHTML='<section class="dashboard-section"><div class="section-head"><h2>Corso</h2></div><div class="dashboard-grid">'+cards(course)+'</div></section><section class="dashboard-section"><div class="section-head"><h2>Economia</h2></div><div class="dashboard-grid dashboard-finance">'+cards(finance)+'</div></section><div class="actions"><button class="secondary" onclick="disconnectBackend()">DISCONNETTI QUESTO DISPOSITIVO</button></div>';
+  const automation=state.portal?.automationActive?'<div class="automation-status active"><strong>Automazioni area iscritti attive</strong><span>Email presenza alle 09:00, promemoria alle 16:00 e avvisi pagamento.</span></div>':'<div class="automation-status"><strong>Automazioni non ancora attive</strong><span>Attivale una volta per programmare email e promemoria.</span><button class="primary" onclick="activatePortalAutomation()">ATTIVA AUTOMAZIONI</button></div>';
+  viewEl.innerHTML='<section class="dashboard-section"><div class="section-head"><h2>Corso</h2></div><div class="dashboard-grid">'+cards(course)+'</div></section><section class="dashboard-section"><div class="section-head"><h2>Economia</h2></div><div class="dashboard-grid dashboard-finance">'+cards(finance)+'</div></section><section class="dashboard-section"><div class="section-head"><h2>Area iscritti</h2></div>'+automation+'</section><div class="actions"><button class="secondary" onclick="disconnectBackend()">DISCONNETTI QUESTO DISPOSITIVO</button></div>';
+}
+async function activatePortalAutomation(){
+  showConfirm({eyebrow:"AUTOMAZIONI",title:"Attiva notifiche email",message:"Verrà creato un controllo orario che invia le richieste di conferma nei giorni di corso e i promemoria delle scadenze.",confirmLabel:"ATTIVA",onConfirm:async()=>{try{await api("installPortalAutomation");toast("Automazioni attivate");await loadAll()}catch(e){showError(e.message,"Automazioni non attivate")}}});
 }
 function filterCards(q,cls){q=q.toLowerCase();document.querySelectorAll("."+cls).forEach(el=>el.style.display=(el.dataset.search||"").includes(q)?"":"none")}
 async function loadAll(){viewEl.innerHTML='<div class="skeleton"></div>';try{if(backend()&&token())Object.assign(state,await api("bootstrap"))}catch(e){showError(e.message,"Dati non caricati")}render()}
@@ -660,6 +671,9 @@ function memberDetail(id){
   const m=state.members.find(x=>x.id===id);
   if(!m)return;
   const value=v=>v&&String(v).trim()?esc(v):"—";
+  const deadlines=(state.portal?.deadlines||[]).filter(x=>x.personId===id&&x.status!=="Pagata"&&x.status!=="Annullata");
+  const documents=(state.portal?.documents||[]).filter(x=>x.personId===id);
+  const next=deadlines.slice().sort((a,b)=>String(a.dueDate).localeCompare(String(b.dueDate)))[0];
   const body='<div class="detail-grid">'+
       '<div class="detail-item"><span>Età</span><strong>'+value(m.age)+'</strong></div>'+
       '<div class="detail-item"><span>Stato</span><strong>'+value(memberDisplayStatus(m))+'</strong></div>'+
@@ -669,7 +683,8 @@ function memberDetail(id){
       '<div class="detail-item"><span>Rischio drop</span><strong>'+value(m.risk)+'</strong></div>'+
       '<div class="detail-item wide"><span>Telefono</span><strong>'+value(m.phone)+'</strong></div>'+
       '<div class="detail-item wide"><span>Email</span><strong>'+value(m.email)+'</strong></div>'+
-    '</div>';
+    '</div>'+
+    '<div class="member-portal-card"><div><div class="field-label">AREA PERSONALE</div><strong>'+(next?'Prossima scadenza '+esc(fmtDate(next.dueDate))+' · '+money(next.amount):'Nessuna scadenza aperta')+'</strong><span>'+documents.length+' document'+(documents.length===1?'o':'i')+' in archivio</span></div><button class="secondary" onclick="openMemberPortalAdmin(\''+esc(id)+'\')">GESTISCI AREA ISCRITTO</button></div>';
   const actions=isArchivedMember(m)
     ? '<button class="secondary" onclick="editMember(\''+esc(m.id)+'\')">MODIFICA</button><button class="primary" onclick="closeMemberDetail();restoreMember(\''+esc(m.id)+'\')">RIPRISTINA</button>'
     : '<button class="secondary" onclick="editMember(\''+esc(m.id)+'\')">MODIFICA</button><button class="primary" onclick="detailPayment(\''+esc(m.id)+'\')">PAGAMENTO</button>';
@@ -677,6 +692,41 @@ function memberDetail(id){
 }
 function closeMemberDetail(){closeModal("memberDetailModal")}
 function detailPayment(id){closeMemberDetail();newPayment(id)}
+function openMemberPortalAdmin(id){
+  const m=state.members.find(x=>x.id===id);if(!m)return;
+  closeMemberDetail();
+  const deadlines=(state.portal?.deadlines||[]).filter(x=>x.personId===id),documents=(state.portal?.documents||[]).filter(x=>x.personId===id);
+  const deadlineHtml=deadlines.length?deadlines.map(d=>'<button class="portal-row" onclick="editDeadline(\''+esc(d.id)+'\')"><span><strong>'+esc(d.type)+(d.installment>1?' · rata '+d.installment:'')+'</strong><small>'+esc(fmtDate(d.dueDate))+' · '+esc(d.status)+'</small></span><b>'+money(d.amount)+'</b><i>›</i></button>').join(''):'<div class="empty compact-note">Nessuna scadenza generata per questo pacchetto.</div>';
+  const documentHtml=documents.length?documents.map(d=>'<div class="portal-row document-admin"><span><strong>'+esc(d.title)+'</strong><small>'+esc(d.type)+' · '+esc(fmtDate(d.uploadedAt))+'</small></span><button class="icon-danger" onclick="confirmDocumentDelete(\''+esc(d.id)+'\',\''+esc(id)+'\')" aria-label="Elimina documento">×</button></div>').join(''):'<div class="empty compact-note">Nessun documento caricato.</div>';
+  const body='<div class="portal-section"><div class="section-head"><h2>SCADENZE</h2><span class="badge ok">'+deadlines.length+'</span></div>'+deadlineHtml+'</div><div class="portal-section"><div class="section-head"><h2>DOCUMENTI</h2><span class="badge ok">'+documents.length+'</span></div>'+documentHtml+'</div><div class="portal-actions"><button class="secondary" onclick="sendPortalInvite(\''+esc(id)+'\')">INVIA LINK DI ACCESSO</button><button class="primary" onclick="openDocumentUpload(\''+esc(id)+'\')">+ CARICA DOCUMENTO</button></div>';
+  openModal({id:"memberPortalModal",className:"portal-modal",eyebrow:"AREA ISCRITTO",title:esc(m.name),body,actions:'<button class="secondary" onclick="closeModal(\'memberPortalModal\')">CHIUDI</button>'});
+}
+function editDeadline(id){
+  const d=(state.portal?.deadlines||[]).find(x=>x.id===id);if(!d)return;
+  const body='<label class="field-label">Data scadenza</label><input id="deadlineDate" class="big-input" type="date" value="'+esc(d.dueDate)+'" autofocus><label class="field-label">Importo</label><input id="deadlineAmount" class="big-input" type="number" min="1" step="0.01" inputmode="decimal" value="'+esc(d.amount)+'"><label class="field-label">Stato</label><select id="deadlineStatus" class="big-select"><option '+(d.status==="Da pagare"||d.status==="Scaduta"?'selected':'')+'>Da pagare</option><option '+(d.status==="Pagata"?'selected':'')+'>Pagata</option><option '+(d.status==="Annullata"?'selected':'')+'>Annullata</option></select><label class="field-label">Note <span class="optional">opzionale</span></label><textarea id="deadlineNote" class="big-input portal-note">'+esc(d.note||"")+'</textarea>';
+  openModal({id:"deadlineModal",eyebrow:"SCADENZA MODIFICABILE",title:esc(d.name),body,actions:'<button class="secondary" onclick="openMemberPortalAdmin(\''+esc(d.personId)+'\')">ANNULLA</button><button class="primary deadline-save" onclick="saveDeadline(\''+esc(id)+'\')">SALVA</button>'});
+}
+async function saveDeadline(id){
+  const dueDate=$("#deadlineDate")?.value,amount=Number($("#deadlineAmount")?.value),status=$("#deadlineStatus")?.value,note=$("#deadlineNote")?.value.trim()||"",d=(state.portal?.deadlines||[]).find(x=>x.id===id);
+  if(!dueDate||!amount){showError("Inserisci data e importo validi.","Scadenza incompleta");return}
+  const btn=$(".deadline-save");btn.disabled=true;btn.textContent="SALVATAGGIO…";
+  try{await api("updateDeadline",{deadlineId:id,dueDate,amount,status,note});toast("Scadenza aggiornata");await loadAll();openMemberPortalAdmin(d.personId)}catch(e){btn.disabled=false;btn.textContent="SALVA";showError(e.message,"Scadenza non aggiornata")}
+}
+function openDocumentUpload(personId){
+  const m=state.members.find(x=>x.id===personId);if(!m)return;
+  const body='<label class="field-label">Tipo</label><select id="documentType" class="big-select"><option>Documento firmato</option><option>Fattura</option><option>Certificato</option><option>Altro</option></select><label class="field-label">Titolo</label><input id="documentTitle" class="big-input" placeholder="Es. Modulo iscrizione firmato" autofocus><label class="field-label">File</label><input id="documentFile" class="big-input file-input" type="file" accept="application/pdf,image/jpeg,image/png"><div class="modal-message">PDF, JPG o PNG. Dimensione massima 4,5 MB. Il file sarà visibile solo a questo iscritto.</div>';
+  openModal({id:"documentUploadModal",eyebrow:"ARCHIVIO DOCUMENTI",title:esc(m.name),body,actions:'<button class="secondary" onclick="openMemberPortalAdmin(\''+esc(personId)+'\')">ANNULLA</button><button class="primary upload-save" onclick="uploadMemberDocument(\''+esc(personId)+'\')">CARICA</button>'});
+}
+async function uploadMemberDocument(personId){
+  const title=$("#documentTitle")?.value.trim(),type=$("#documentType")?.value,file=$("#documentFile")?.files?.[0];
+  if(!title||!file){showError("Inserisci un titolo e scegli il file.","Documento incompleto");return}if(file.size>4500000){showError("Il file deve pesare meno di 4,5 MB.","File troppo grande");return}
+  const btn=$(".upload-save");btn.disabled=true;btn.textContent="CARICAMENTO…";
+  try{const contentBase64=await fileBase64(file);await api("uploadMemberDocument",{personId,title,type,fileName:file.name,mimeType:file.type,contentBase64,visible:true});toast("Documento caricato");await loadAll();openMemberPortalAdmin(personId)}catch(e){btn.disabled=false;btn.textContent="CARICA";showError(e.message,"Documento non caricato")}
+}
+function fileBase64(file){return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(",")[1]||"");reader.onerror=()=>reject(new Error("Impossibile leggere il file."));reader.readAsDataURL(file)})}
+function confirmDocumentDelete(documentId,personId){showConfirm({eyebrow:"ARCHIVIO DOCUMENTI",title:"Elimina documento",message:"Il documento verrà rimosso dall’area personale e spostato nel cestino di Google Drive.",confirmLabel:"ELIMINA",danger:true,onConfirm:()=>deleteMemberDocument(documentId,personId)})}
+async function deleteMemberDocument(documentId,personId){try{await api("deleteMemberDocument",{documentId});toast("Documento eliminato");await loadAll();openMemberPortalAdmin(personId)}catch(e){showError(e.message,"Documento non eliminato")}}
+async function sendPortalInvite(personId){try{await api("sendMemberAccessLink",{personId});toast("Link di accesso inviato via email")}catch(e){showError(e.message,"Email non inviata")}}
 let editDraft={frequency:"2",day:"Martedì+Giovedì",plan:"Annuale",status:"Attivo"};
 function parseFrequency(value){const f=String(value||"").toLowerCase();if(f.includes("2"))return{frequency:"2",day:"Martedì+Giovedì"};return{frequency:"1",day:f.includes("giov")?"Giovedì":"Martedì"}}
 function editMember(id){
