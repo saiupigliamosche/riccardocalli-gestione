@@ -18,7 +18,7 @@ const ADMIN = {
 };
 
 function doGet() {
-  return json_({ ok: true, service: 'Parkour Course OS API', version: '1.5.0' });
+  return json_({ ok: true, service: 'Parkour Course OS API', version: '1.5.1' });
 }
 
 function doPost(e) {

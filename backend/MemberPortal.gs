@@ -5,6 +5,7 @@ const MEMBER_PORTAL = {
   maxDocumentBytes: 4500000,
   folderName: 'Parkour Course OS - Documenti iscritti',
   seasonStart: '2026-10-01',
+  seasonEnd: '2027-06-09',
   installmentDates: ['2026-10-01','2027-01-01','2027-04-01']
 };
 
@@ -368,14 +369,15 @@ function sanitizeFileName_(name) {
 function ensureUpcomingRsvps_(count) {
   let d = new Date(), made = 0;
   d.setHours(12,0,0,0);
-  while (made < count) {
+  if (Utilities.formatDate(d,ADMIN.timezone,'yyyy-MM-dd') < MEMBER_PORTAL.seasonStart) d = parseKey_(MEMBER_PORTAL.seasonStart);
+  while (made < count && Utilities.formatDate(d,ADMIN.timezone,'yyyy-MM-dd') <= MEMBER_PORTAL.seasonEnd) {
     if (isCourseDay_(d)) { ensureRsvpsForDate_(Utilities.formatDate(d,ADMIN.timezone,'yyyy-MM-dd')); made++; }
     d.setDate(d.getDate()+1);
   }
 }
 
 function ensureRsvpsForDate_(key) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(key) || !isCourseDay_(parseKey_(key))) return;
+  if (!isSeasonLessonKey_(key) || !isCourseDay_(parseKey_(key))) return;
   const sh = sheet_(ADMIN.sheets.rsvps), existing = {};
   table_(sh).forEach(function(r) { if (dateKey_(r['Data lezione']) === key) existing[str_(r['Persona ID'])] = true; });
   const lesson = ensureLesson_(key);
@@ -425,10 +427,13 @@ function scheduledForMember_(member, key) {
 
 function nextScheduledLessonForMember_(member, start) {
   const d = new Date(start); d.setHours(12,0,0,0);
+  if (Utilities.formatDate(d,ADMIN.timezone,'yyyy-MM-dd') < MEMBER_PORTAL.seasonStart) d.setTime(parseKey_(MEMBER_PORTAL.seasonStart).getTime());
+  if (Utilities.formatDate(d,ADMIN.timezone,'yyyy-MM-dd') > MEMBER_PORTAL.seasonEnd) return '';
   const todayKey = Utilities.formatDate(d,ADMIN.timezone,'yyyy-MM-dd'), hour = num_(Utilities.formatDate(new Date(),ADMIN.timezone,'H'));
   if (hour >= 19 && scheduledForMember_(member,todayKey)) d.setDate(d.getDate()+1);
   for (let i=0;i<15;i++) {
     const key = Utilities.formatDate(d,ADMIN.timezone,'yyyy-MM-dd');
+    if (key > MEMBER_PORTAL.seasonEnd) return '';
     if (scheduledForMember_(member,key)) return key;
     d.setDate(d.getDate()+1);
   }
@@ -436,6 +441,7 @@ function nextScheduledLessonForMember_(member, start) {
 }
 
 function isCourseDay_(date) { return date.getDay() === 2 || date.getDay() === 4; }
+function isSeasonLessonKey_(key) { return /^\d{4}-\d{2}-\d{2}$/.test(key) && key >= MEMBER_PORTAL.seasonStart && key <= MEMBER_PORTAL.seasonEnd; }
 
 function installMemberPortalAutomation_() {
   ScriptApp.getProjectTriggers().filter(function(t) { return t.getHandlerFunction() === 'runMemberPortalAutomation'; }).forEach(function(t) { ScriptApp.deleteTrigger(t); });
@@ -447,7 +453,7 @@ function runMemberPortalAutomation() {
   ensureMemberPortalSchema_();
   ensureAllMemberDeadlines_();
   const now = new Date(), hour = num_(Utilities.formatDate(now,ADMIN.timezone,'H')), key = Utilities.formatDate(now,ADMIN.timezone,'yyyy-MM-dd');
-  if (isCourseDay_(parseKey_(key)) && (hour === 9 || hour === 16)) sendRsvpNotifications_(key,hour);
+  if (isSeasonLessonKey_(key) && isCourseDay_(parseKey_(key)) && (hour === 9 || hour === 16)) sendRsvpNotifications_(key,hour);
   if (hour === 9) sendPaymentReminders_(key);
 }
 
