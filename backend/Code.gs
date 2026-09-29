@@ -19,7 +19,7 @@ const ADMIN = {
 };
 
 function doGet() {
-  return json_({ ok: true, service: 'Parkour Course OS API', version: '1.6.3' });
+  return json_({ ok: true, service: 'Parkour Course OS API', version: '1.6.4' });
 }
 
 function doPost(e) {
