@@ -1,4 +1,4 @@
-const CONFIG={API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",VERSION:"1.3.1",FIREBASE_SDK:"10.14.1"};
+const CONFIG={API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",VERSION:"1.3.2",FIREBASE_SDK:"10.14.1"};
 const state={view:"home",portal:null,loading:false,pushBusy:false,rsvpBusy:false,loginPolling:false,loginPollTimer:null};
 const $=s=>document.querySelector(s),viewEl=$("#view"),titleEl=$("#pageTitle"),navEl=$("#bottomNav"),profileBtn=$("#profileBtn"),toastEl=$("#toast");
 const session=()=>localStorage.getItem("parkour_member_session")||"";
@@ -14,9 +14,13 @@ function fmtDate(v,weekday=true){if(!v)return"—";const d=new Date(String(v).le
 function initials(name=""){return name.split(/\s+/).filter(Boolean).slice(0,2).map(x=>x[0].toUpperCase()).join("")||"?"}
 function toast(message){toastEl.textContent=message;toastEl.hidden=false;setTimeout(()=>toastEl.hidden=true,2600)}
 async function api(action,data={}){
-  const r=await fetch(CONFIG.API,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({action,data}),cache:"no-store",credentials:"omit",redirect:"follow"});
-  if(!r.ok)throw new Error("Servizio momentaneamente non raggiungibile.");
-  const out=await r.json();if(!out.ok)throw new Error(out.error||"Operazione non riuscita.");return out.data??out;
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),15000);
+  try{
+    const r=await fetch(CONFIG.API,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({action,data}),cache:"no-store",credentials:"omit",redirect:"follow",signal:controller.signal});
+    if(!r.ok)throw new Error("Servizio momentaneamente non raggiungibile.");
+    const out=await r.json();if(!out.ok)throw new Error(out.error||"Operazione non riuscita.");return out.data??out;
+  }catch(err){if(err?.name==="AbortError")throw new Error("Il controllo sta impiegando troppo tempo. Riprova.");throw err}
+  finally{clearTimeout(timer)}
 }
 function setSession(value){if(value)localStorage.setItem("parkour_member_session",value);else localStorage.removeItem("parkour_member_session")}
 function setLoading(on,message="Caricamento…"){state.loading=on;if(on)viewEl.innerHTML='<div class="loading"><span></span>'+esc(message)+'</div>'}
@@ -32,11 +36,11 @@ function loginScreen(message=""){
   $("#loginForm").addEventListener("submit",requestLink);
 }
 function newLoginRequestToken(){const bytes=new Uint8Array(32);if(crypto.getRandomValues)crypto.getRandomValues(bytes);else return (crypto.randomUUID?crypto.randomUUID():Date.now()+""+Math.random()).replace(/-/g,"").repeat(2);return btoa(String.fromCharCode(...bytes)).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/g,"")}
-function readLoginRequest(){try{const value=JSON.parse(localStorage.getItem(LOGIN_REQUEST_KEY)||"null");if(!value?.token||Date.now()-Number(value.createdAt||0)>3600000){localStorage.removeItem(LOGIN_REQUEST_KEY);return null}return value}catch(_){return null}}
+function readLoginRequest(){try{const value=JSON.parse(localStorage.getItem(LOGIN_REQUEST_KEY)||"null");if(!value?.token||Date.now()-Number(value.createdAt||0)>900000){localStorage.removeItem(LOGIN_REQUEST_KEY);return null}return value}catch(_){return null}}
 function clearLoginRequest(){localStorage.removeItem(LOGIN_REQUEST_KEY);if(state.loginPollTimer)clearInterval(state.loginPollTimer);state.loginPollTimer=null;state.loginPolling=false}
 function pendingLoginScreen(request){
   navEl.hidden=true;profileBtn.hidden=true;titleEl.textContent="Completa l’accesso";
-  viewEl.innerHTML='<section class="login-card"><div class="login-mark">PK</div><div class="eyebrow">APP INSTALLATA</div><h2>Controlla la tua email.</h2><p>Apri il link ricevuto anche se si apre in Chrome o Safari. Poi torna qui: l’app completerà automaticamente l’accesso.</p><div class="notice">In attesa della conferma per '+esc(request.email||"la tua email")+'…</div><button class="primary" id="checkLoginBtn" type="button">CONTROLLA ORA</button><button class="secondary" id="restartLoginBtn" type="button">USA UN’ALTRA EMAIL</button></section>';
+  viewEl.innerHTML='<section class="login-card"><div class="login-mark">PK</div><div class="eyebrow">APP INSTALLATA</div><h2>Controlla la tua email.</h2><p>Apri il link ricevuto anche se si apre in Chrome o Safari. Puoi usare anche un link personale precedente. Poi torna qui: l’app completerà automaticamente l’accesso.</p><div class="notice">In attesa della conferma per '+esc(request.email||"la tua email")+'…</div><button class="primary" id="checkLoginBtn" type="button">CONTROLLA ORA</button><button class="secondary" id="restartLoginBtn" type="button">INVIA UN NUOVO LINK</button></section>';
   $("#checkLoginBtn").onclick=()=>claimLogin(true);$("#restartLoginBtn").onclick=()=>{clearLoginRequest();loginScreen()};
 }
 async function requestLink(e){e.preventDefault();const email=$("#loginEmail").value.trim(),btn=e.currentTarget.querySelector("button"),appRequestToken=newLoginRequestToken();btn.disabled=true;btn.textContent="INVIO…";try{await api("memberRequestLink",{email,appRequestToken});const request={token:appRequestToken,email,createdAt:Date.now()};localStorage.setItem(LOGIN_REQUEST_KEY,JSON.stringify(request));startLoginPolling()}catch(err){showMessage("Accesso non riuscito",err.message,()=>loginScreen())}}
