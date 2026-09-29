@@ -1,7 +1,8 @@
 {
   "name":"Area iscritti · Corso Parkour Padova",
   "short_name":"Parkour Padova",
-  "description":"Presenze previste, pagamenti e documenti del Corso Parkour Padova",
+  "description":"Conferme delle lezioni, pagamenti, documenti e notifiche del Corso Parkour Padova",
+  "id":"/riccardocalli-gestione/iscritti/",
   "start_url":"./",
   "scope":"./",
   "display":"standalone",
