@@ -33,15 +33,26 @@ In Apps Script → Project Settings → Script Properties crea anche:
 
 Non inserirla nel repository.
 
-## 5. Autorizzazioni necessarie
+## 5. Configura Firebase Cloud Messaging
+In Apps Script → Project Settings → Script Properties aggiungi:
+- `FCM_PROJECT_ID`;
+- `FCM_CLIENT_EMAIL`;
+- `FCM_PRIVATE_KEY`;
+- `FCM_VAPID_PUBLIC_KEY`;
+- `FCM_WEB_CONFIG`, contenente il JSON pubblico dell'app web Firebase.
+
+La chiave privata Firebase deve restare esclusivamente nelle proprietà protette di Apps Script.
+
+## 6. Autorizzazioni necessarie
 La nuova area usa i servizi Apps Script per:
 - inviare email con link personali permanenti e promemoria;
+- registrare i dispositivi e inviare notifiche push tramite Firebase Cloud Messaging;
 - salvare in Google Drive i documenti caricati dall'amministratore;
 - creare il trigger orario delle automazioni.
 
 Alla prima distribuzione Google chiederà di autorizzare questi permessi. La cartella Drive `Parkour Course OS - Documenti iscritti` viene creata automaticamente e resta privata.
 
-## 6. Distribuisci come Web App
+## 7. Distribuisci come Web App
 Deploy → New deployment → Web app
 
 Impostazioni:
@@ -49,7 +60,7 @@ Impostazioni:
 - Access: solo l'account appropriato se disponibile; in alternativa usare il token applicativo previsto dal backend.
 - Copia l'URL `.../exec`.
 
-## 7. Collega Jotform al webhook
+## 8. Collega Jotform al webhook
 Nel Form Builder Jotform del modulo `262643062831050`:
 Settings → Integrations → Webhooks.
 
@@ -58,7 +69,7 @@ Inserisci come endpoint:
 
 Completa l'integrazione.
 
-## 8. Collega la PWA dal telefono
+## 9. Collega la PWA dal telefono
 Apri la PWA gestionale.
 Premi `COLLEGA BACKEND`.
 
