@@ -1,4 +1,4 @@
-const CONFIG={VERSION:"0.10.2",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",ENROLLMENT_FORM:"https://form.jotform.com/262643062831050",SEASON_START:"2026-10-01",SEASON_END:"2027-06-09"};
+const CONFIG={VERSION:"0.10.3",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",ENROLLMENT_FORM:"https://form.jotform.com/262643062831050",SEASON_START:"2026-10-01",SEASON_END:"2027-06-09"};
 const now=new Date();
 const state={view:"home",today:null,trials:[],members:[],payments:[],lessons:[],dashboard:null,portal:{deadlines:[],documents:[],rsvps:[]},monthYear:now.getFullYear(),monthIndex:now.getMonth(),selectedDate:null};
 const memberDirectory={filter:"Attivo",query:""};
@@ -253,9 +253,15 @@ function memberRowHtml(p){
   const search=[p.name,displayStatus,p.plan,p.frequency].filter(Boolean).join(" ").toLowerCase();
   const freq=String(p.frequency||"").toLowerCase();
   const freqKey=freq.includes("2")?"2x":"1x";
-  return '<button class="member-row" data-member-row data-status="'+esc(displayStatus)+'" data-frequency="'+freqKey+'" data-search="'+esc(search)+'" onclick="memberDetail(\''+esc(p.id)+'\')">'+
-    '<span class="member-row-main"><span class="person-name">'+esc(p.name)+'</span><span class="person-sub">'+esc(memberPlanShort(p))+'</span></span>'+
-    '<span class="member-row-end"><span class="member-status-dot '+memberStatusClass(displayStatus)+'" aria-hidden="true"></span><span class="member-status-text">'+esc(displayStatus)+'</span><span class="member-chevron" aria-hidden="true">›</span></span></button>';
+  const canSend=displayStatus==="Attivo"&&!!String(p.email||"").trim();
+  const sendLabel=canSend?"INVIA LINK":displayStatus!=="Attivo"?"NON ATTIVO":"EMAIL MANCANTE";
+  const sendTitle=canSend?"Invia il link di accesso all’app a "+p.name:displayStatus!=="Attivo"?"L’area personale è disponibile solo per gli iscritti attivi":"Aggiungi un’email valida per inviare il link";
+  return '<div class="member-row" data-member-row data-status="'+esc(displayStatus)+'" data-frequency="'+freqKey+'" data-search="'+esc(search)+'">'+
+    '<button type="button" class="member-row-open" onclick="memberDetail(\''+esc(p.id)+'\')">'+
+      '<span class="member-row-main"><span class="person-name">'+esc(p.name)+'</span><span class="person-sub">'+esc(memberPlanShort(p))+'</span></span>'+
+      '<span class="member-row-end"><span class="member-status-dot '+memberStatusClass(displayStatus)+'" aria-hidden="true"></span><span class="member-status-text">'+esc(displayStatus)+'</span><span class="member-chevron" aria-hidden="true">›</span></span>'+
+    '</button>'+
+    '<button type="button" class="member-link-send" title="'+esc(sendTitle)+'" aria-label="'+esc(sendTitle)+'" onclick="sendPortalInvite(\''+esc(p.id)+'\',this)"'+(canSend?'':' disabled')+'>'+sendLabel+'</button></div>';
 }
 function memberFilterCounts(rows){return{
   all:rows.filter(x=>!isArchivedMember(x)).length,
@@ -747,7 +753,13 @@ async function uploadMemberDocument(personId){
 function fileBase64(file){return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(",")[1]||"");reader.onerror=()=>reject(new Error("Impossibile leggere il file."));reader.readAsDataURL(file)})}
 function confirmDocumentDelete(documentId,personId){showConfirm({eyebrow:"ARCHIVIO DOCUMENTI",title:"Elimina documento",message:"Il documento verrà rimosso dall’area personale e spostato nel cestino di Google Drive.",confirmLabel:"ELIMINA",danger:true,onConfirm:()=>deleteMemberDocument(documentId,personId)})}
 async function deleteMemberDocument(documentId,personId){try{await api("deleteMemberDocument",{documentId});toast("Documento eliminato");await loadAll();openMemberPortalAdmin(personId)}catch(e){showError(e.message,"Documento non eliminato")}}
-async function sendPortalInvite(personId){try{await api("sendMemberAccessLink",{personId});toast("Link di accesso inviato via email")}catch(e){showError(e.message,"Email non inviata")}}
+async function sendPortalInvite(personId,trigger){
+  const button=trigger&&trigger.tagName==="BUTTON"?trigger:null,originalLabel=button?button.textContent:"";
+  if(button){button.disabled=true;button.textContent="INVIO…"}
+  try{await api("sendMemberAccessLink",{personId});toast("Link di accesso inviato via email")}
+  catch(e){showError(e.message,"Email non inviata")}
+  finally{if(button){button.disabled=false;button.textContent=originalLabel}}
+}
 let editDraft={frequency:"2",day:"Martedì+Giovedì",plan:"Annuale",status:"Attivo"};
 function parseFrequency(value){const f=String(value||"").toLowerCase();if(f.includes("2"))return{frequency:"2",day:"Martedì+Giovedì"};return{frequency:"1",day:f.includes("giov")?"Giovedì":"Martedì"}}
 function editMember(id){
