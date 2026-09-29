@@ -1,9 +1,10 @@
-const CONFIG={API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",VERSION:"1.2.0",FIREBASE_SDK:"10.14.1"};
-const state={view:"home",portal:null,loading:false,pushBusy:false,rsvpBusy:false};
+const CONFIG={API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",VERSION:"1.3.0",FIREBASE_SDK:"10.14.1"};
+const state={view:"home",portal:null,loading:false,pushBusy:false,rsvpBusy:false,loginPolling:false,loginPollTimer:null};
 const $=s=>document.querySelector(s),viewEl=$("#view"),titleEl=$("#pageTitle"),navEl=$("#bottomNav"),profileBtn=$("#profileBtn"),toastEl=$("#toast");
 const session=()=>localStorage.getItem("parkour_member_session")||"";
 const pushToken=()=>localStorage.getItem("parkour_push_token")||"";
 const MEMBER_SNAPSHOT_KEY="parkour_member_snapshot_v2";
+const LOGIN_REQUEST_KEY="parkour_member_login_request_v1";
 function readMemberSnapshot(){try{return JSON.parse(localStorage.getItem(MEMBER_SNAPSHOT_KEY)||"null")}catch(_){return null}}
 function saveMemberSnapshot(){try{if(state.portal)localStorage.setItem(MEMBER_SNAPSHOT_KEY,JSON.stringify(state.portal))}catch(_){}}
 const deviceId=()=>{let id=localStorage.getItem("parkour_device_id");if(!id){id=crypto.randomUUID?crypto.randomUUID():Date.now()+"-"+Math.random().toString(36).slice(2);localStorage.setItem("parkour_device_id",id)}return id};
@@ -24,12 +25,28 @@ function loginScreen(message=""){
   viewEl.innerHTML='<section class="login-card"><div class="login-mark">PK</div><div class="eyebrow">ACCESSO PERSONALE</div><h2>Tutto il corso, in un solo posto.</h2><p>Inserisci l’email usata per l’iscrizione. Riceverai un link personale permanente, utilizzabile su più dispositivi.</p>'+(message?'<div class="notice">'+esc(message)+'</div>':'')+'<form id="loginForm"><label for="loginEmail">Email</label><input id="loginEmail" type="email" autocomplete="email" inputmode="email" placeholder="nome@email.it" required><button class="primary" type="submit">INVIA LINK DI ACCESSO</button></form></section>';
   $("#loginForm").addEventListener("submit",requestLink);
 }
-async function requestLink(e){e.preventDefault();const email=$("#loginEmail").value.trim(),btn=e.currentTarget.querySelector("button");btn.disabled=true;btn.textContent="INVIO…";try{const out=await api("memberRequestLink",{email});loginScreen(out.message||"Controlla la tua email.")}catch(err){showMessage("Accesso non riuscito",err.message,()=>loginScreen())}}
+function newLoginRequestToken(){const bytes=new Uint8Array(32);if(crypto.getRandomValues)crypto.getRandomValues(bytes);else return (crypto.randomUUID?crypto.randomUUID():Date.now()+""+Math.random()).replace(/-/g,"").repeat(2);return btoa(String.fromCharCode(...bytes)).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/g,"")}
+function readLoginRequest(){try{const value=JSON.parse(localStorage.getItem(LOGIN_REQUEST_KEY)||"null");if(!value?.token||Date.now()-Number(value.createdAt||0)>3600000){localStorage.removeItem(LOGIN_REQUEST_KEY);return null}return value}catch(_){return null}}
+function clearLoginRequest(){localStorage.removeItem(LOGIN_REQUEST_KEY);if(state.loginPollTimer)clearInterval(state.loginPollTimer);state.loginPollTimer=null;state.loginPolling=false}
+function pendingLoginScreen(request){
+  navEl.hidden=true;profileBtn.hidden=true;titleEl.textContent="Completa l’accesso";
+  viewEl.innerHTML='<section class="login-card"><div class="login-mark">PK</div><div class="eyebrow">APP INSTALLATA</div><h2>Controlla la tua email.</h2><p>Apri il link ricevuto anche se si apre in Chrome o Safari. Poi torna qui: l’app completerà automaticamente l’accesso.</p><div class="notice">In attesa della conferma per '+esc(request.email||"la tua email")+'…</div><button class="primary" id="checkLoginBtn" type="button">CONTROLLA ORA</button><button class="secondary" id="restartLoginBtn" type="button">USA UN’ALTRA EMAIL</button></section>';
+  $("#checkLoginBtn").onclick=()=>claimLogin(true);$("#restartLoginBtn").onclick=()=>{clearLoginRequest();loginScreen()};
+}
+async function requestLink(e){e.preventDefault();const email=$("#loginEmail").value.trim(),btn=e.currentTarget.querySelector("button"),appRequestToken=newLoginRequestToken();btn.disabled=true;btn.textContent="INVIO…";try{await api("memberRequestLink",{email,appRequestToken});const request={token:appRequestToken,email,createdAt:Date.now()};localStorage.setItem(LOGIN_REQUEST_KEY,JSON.stringify(request));startLoginPolling()}catch(err){showMessage("Accesso non riuscito",err.message,()=>loginScreen())}}
+async function claimLogin(manual=false){
+  const request=readLoginRequest();if(!request||state.loginPolling)return;
+  state.loginPolling=true;const btn=$("#checkLoginBtn");if(btn){btn.disabled=true;btn.textContent="CONTROLLO…"}
+  try{const out=await api("memberClaimLogin",{appRequestToken:request.token});if(!out.ready){if(manual)toast("Apri prima il link ricevuto via email");return}setSession(out.sessionToken);state.portal=out.portal;saveMemberSnapshot();clearLoginRequest();renderShell()}
+  catch(err){if(manual)showMessage("Accesso non completato",err.message)}
+  finally{state.loginPolling=false;if(btn&&document.body.contains(btn)){btn.disabled=false;btn.textContent="CONTROLLA ORA"}}
+}
+function startLoginPolling(){const request=readLoginRequest();if(!request)return;pendingLoginScreen(request);claimLogin();if(state.loginPollTimer)clearInterval(state.loginPollTimer);state.loginPollTimer=setInterval(()=>{if(document.visibilityState==="visible")claimLogin()},2500)}
 function showMessage(title,message,onClose){
   document.body.insertAdjacentHTML("beforeend",'<div class="modal-backdrop visible" id="messageModal"><section class="app-modal" role="dialog" aria-modal="true"><div class="modal-header"><div><div class="eyebrow">AREA ISCRITTI</div><h2>'+esc(title)+'</h2></div><button class="modal-close" aria-label="Chiudi">×</button></div><div class="modal-message">'+esc(message)+'</div><button class="primary modal-button">CHIUDI</button></section></div>');
   const close=()=>{$("#messageModal")?.remove();if(onClose)onClose()};$("#messageModal .modal-close").onclick=close;$("#messageModal .modal-button").onclick=close;
 }
-async function exchangeLoginToken(raw){setLoading(true,"Accesso in corso…");try{const out=await api("memberLogin",{loginToken:raw});setSession(out.sessionToken);state.portal=out.portal;saveMemberSnapshot();history.replaceState({},"",location.pathname+location.hash);renderShell()}catch(err){history.replaceState({},"",location.pathname);setSession("");loginScreen();showMessage("Link non valido",err.message)}}
+async function exchangeLoginToken(raw){setLoading(true,"Accesso in corso…");try{const out=await api("memberLogin",{loginToken:raw});setSession(out.sessionToken);state.portal=out.portal;saveMemberSnapshot();clearLoginRequest();history.replaceState({},"",location.pathname+location.hash);renderShell()}catch(err){history.replaceState({},"",location.pathname);setSession("");loginScreen();showMessage("Link non valido",err.message)}}
 async function loadPortal(){
   if(!session()){loginScreen();return}
   const cached=readMemberSnapshot();
@@ -106,5 +123,6 @@ async function downloadDocument(id,button){if(button)button.disabled=true;toast(
 function openProfile(){const m=state.portal.member;document.body.insertAdjacentHTML("beforeend",'<div class="modal-backdrop visible" id="profileModal"><section class="app-modal"><div class="modal-header"><div><div class="eyebrow">PROFILO</div><h2>'+esc(m.name)+'</h2></div><button class="modal-close" aria-label="Chiudi">×</button></div><div class="profile-details"><span>Email</span><strong>'+esc(m.email)+'</strong><span>Frequenza</span><strong>'+esc(m.frequency||"—")+'</strong><span>Pacchetto</span><strong>'+esc(m.plan||"—")+'</strong></div><button class="secondary logout">ESCI DA QUESTO DISPOSITIVO</button></section></div>');$("#profileModal .modal-close").onclick=()=>$("#profileModal").remove();$("#profileModal .logout").onclick=logout}
 async function logout(){try{if(pushToken())await api("memberUnregisterPush",{sessionToken:session(),fcmToken:pushToken(),deviceId:deviceId()});await api("memberLogout",{sessionToken:session()})}catch(_){}localStorage.removeItem("parkour_push_token");localStorage.removeItem(MEMBER_SNAPSHOT_KEY);setSession("");state.portal=null;$("#profileModal")?.remove();loginScreen()}
 document.querySelectorAll("#bottomNav button").forEach(b=>b.addEventListener("click",()=>{state.view=b.dataset.view;history.replaceState({},"",location.pathname+"#"+state.view);render()}));profileBtn.addEventListener("click",openProfile);
-(async function init(){const requested=location.hash.slice(1);if(["home","payments","documents"].includes(requested))state.view=requested;const raw=new URLSearchParams(location.search).get("login");if(raw)await exchangeLoginToken(raw);else await loadPortal()})();
+(async function init(){const requested=location.hash.slice(1);if(["home","payments","documents"].includes(requested))state.view=requested;const raw=new URLSearchParams(location.search).get("login");if(raw)await exchangeLoginToken(raw);else if(!session()&&readLoginRequest())startLoginPolling();else await loadPortal()})();
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"&&!session()&&readLoginRequest())claimLogin()});
 if("serviceWorker" in navigator)window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}));
