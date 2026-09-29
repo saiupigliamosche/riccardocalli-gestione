@@ -71,7 +71,7 @@ function portalAdminData_() {
 function memberRequestLink_(data) {
   const email = normalizeEmail_(data.email);
   if (!email) throw new Error('Inserisci un indirizzo email valido.');
-  const member = findMemberByEmail_(email);
+  const member = isReferenceEmail_(email) ? referenceMember_() : findMemberByEmail_(email);
   if (member && !recentLoginLinkExists_(email, 2)) sendMagicLinkEmail_(member, 'accesso');
   return { ok: true, message: 'Se l’email è registrata, riceverai il link di accesso entro pochi minuti.' };
 }
@@ -80,8 +80,8 @@ function memberLogin_(data) {
   const raw = clean_(data.loginToken);
   if (!raw) throw new Error('Link di accesso non valido.');
   const access = findAccessByHash_(tokenHash_(raw), 'Login');
-  if (!access || access.revoked || access.used || access.expiresAt.getTime() < Date.now()) throw new Error('Il link è scaduto o è già stato usato. Richiedine uno nuovo.');
-  const member = findMember_(access.personId, true);
+  if (!access || access.revoked) throw new Error('Il link non è valido oppure è stato revocato.');
+  const member = memberForAccess_(access);
   if (!member || member.status !== 'Attivo') throw new Error('Area personale non disponibile per questo profilo.');
   markAccess_(access.row, {'Usato': new Date(), 'Ultimo accesso': new Date()});
   const sessionToken = randomToken_();
@@ -128,7 +128,7 @@ function authorizeMemberSession_(rawToken) {
   if (!token) throw new Error('Sessione scaduta. Accedi di nuovo.');
   const access = findAccessByHash_(tokenHash_(token), 'Sessione');
   if (!access || access.revoked || access.expiresAt.getTime() < Date.now()) throw new Error('Sessione scaduta. Accedi di nuovo.');
-  const member = findMember_(access.personId, true);
+  const member = memberForAccess_(access);
   if (!member || member.status !== 'Attivo') throw new Error('Area personale non disponibile.');
   markAccess_(access.row, {'Ultimo accesso': new Date()});
   return { member: member, row: access.row };
@@ -159,6 +159,25 @@ function findMemberByEmail_(email) {
   return memberList_().find(function(m) { return normalizeEmail_(m.email) === email && m.status === 'Attivo'; }) || null;
 }
 
+function isReferenceEmail_(email) {
+  return normalizeEmail_(email) === normalizeEmail_(ADMIN.ownerEmail);
+}
+
+function referenceMember_() {
+  return {
+    id: 'REFERENCE-OWNER',
+    name: 'Riccardo Calli',
+    email: ADMIN.ownerEmail,
+    plan: 'Accesso di riferimento',
+    frequency: '',
+    status: 'Attivo'
+  };
+}
+
+function memberForAccess_(access) {
+  return isReferenceEmail_(access.email) ? referenceMember_() : findMember_(access.personId, true);
+}
+
 function recentLoginLinkExists_(email, minutes) {
   const cutoff = Date.now() - minutes * 60000;
   return table_(sheet_(ADMIN.sheets.memberAccess)).some(function(r) {
@@ -179,11 +198,11 @@ function tokenHash_(token) {
 }
 
 function createMagicLink_(member, reason) {
-  const raw = randomToken_(), expires = new Date(Date.now() + MEMBER_PORTAL.loginMinutes * 60000);
+  const raw = randomToken_();
   appendByHeaders_(sheet_(ADMIN.sheets.memberAccess), {
     'Accesso ID': id_('ACC'), 'Persona ID': member.id, 'Email': member.email,
     'Tipo': 'Login', 'Token hash': tokenHash_(raw), 'Creato': new Date(),
-    'Scadenza': expires, 'Motivo': reason || 'Accesso'
+    'Scadenza': '', 'Motivo': (reason || 'Accesso') + ' · Link permanente'
   });
   return MEMBER_PORTAL.url + '?login=' + encodeURIComponent(raw);
 }
@@ -191,7 +210,7 @@ function createMagicLink_(member, reason) {
 function sendMagicLinkEmail_(member, reason) {
   if (!normalizeEmail_(member.email)) return false;
   const link = createMagicLink_(member, reason);
-  const body = '<p>Ciao ' + html_(member.name) + ',</p><p>usa il pulsante qui sotto per accedere alla tua area personale del Corso Parkour Padova.</p>' + emailButton_(link, 'APRI AREA PERSONALE') + '<p style="color:#66736f;font-size:13px">Il link scade tra ' + MEMBER_PORTAL.loginMinutes + ' minuti e può essere usato una sola volta.</p>';
+  const body = '<p>Ciao ' + html_(member.name) + ',</p><p>usa il pulsante qui sotto per accedere alla tua area personale del Corso Parkour Padova.</p>' + emailButton_(link, 'APRI AREA PERSONALE') + '<p style="color:#66736f;font-size:13px">Questo link personale non scade e può essere usato su più dispositivi. Non inoltrarlo ad altre persone.</p>';
   MailApp.sendEmail({ to: member.email, subject: 'Accesso area personale · Corso Parkour Padova', htmlBody: emailLayout_('Area personale', body), name: 'Corso Parkour Padova' });
   return true;
 }
