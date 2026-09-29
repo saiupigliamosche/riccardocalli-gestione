@@ -1,4 +1,4 @@
-const CONFIG={API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",VERSION:"1.3.0",FIREBASE_SDK:"10.14.1"};
+const CONFIG={API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",VERSION:"1.3.1",FIREBASE_SDK:"10.14.1"};
 const state={view:"home",portal:null,loading:false,pushBusy:false,rsvpBusy:false,loginPolling:false,loginPollTimer:null};
 const $=s=>document.querySelector(s),viewEl=$("#view"),titleEl=$("#pageTitle"),navEl=$("#bottomNav"),profileBtn=$("#profileBtn"),toastEl=$("#toast");
 const session=()=>localStorage.getItem("parkour_member_session")||"";
@@ -20,6 +20,12 @@ async function api(action,data={}){
 }
 function setSession(value){if(value)localStorage.setItem("parkour_member_session",value);else localStorage.removeItem("parkour_member_session")}
 function setLoading(on,message="Caricamento…"){state.loading=on;if(on)viewEl.innerHTML='<div class="loading"><span></span>'+esc(message)+'</div>'}
+function invalidSessionError(err){return /sessione scaduta|area personale non disponibile/i.test(String(err?.message||""))}
+function connectionScreen(message){
+  navEl.hidden=true;profileBtn.hidden=true;titleEl.textContent="Area iscritti";
+  viewEl.innerHTML='<section class="login-card"><div class="login-mark">PK</div><div class="eyebrow">CONNESSIONE</div><h2>Accesso conservato.</h2><p>La sessione su questo iPhone è ancora salvata. Il servizio non è raggiungibile in questo momento.</p><div class="notice">'+esc(message||"Controlla la connessione e riprova.")+'</div><button class="primary" id="retryPortalBtn" type="button">RIPROVA</button></section>';
+  $("#retryPortalBtn").onclick=loadPortal;
+}
 function loginScreen(message=""){
   navEl.hidden=true;profileBtn.hidden=true;titleEl.textContent="Area iscritti";
   viewEl.innerHTML='<section class="login-card"><div class="login-mark">PK</div><div class="eyebrow">ACCESSO PERSONALE</div><h2>Tutto il corso, in un solo posto.</h2><p>Inserisci l’email usata per l’iscrizione. Riceverai un link personale permanente, utilizzabile su più dispositivi.</p>'+(message?'<div class="notice">'+esc(message)+'</div>':'')+'<form id="loginForm"><label for="loginEmail">Email</label><input id="loginEmail" type="email" autocomplete="email" inputmode="email" placeholder="nome@email.it" required><button class="primary" type="submit">INVIA LINK DI ACCESSO</button></form></section>';
@@ -52,7 +58,11 @@ async function loadPortal(){
   const cached=readMemberSnapshot();
   if(cached){state.portal=cached;renderShell()}else setLoading(true);
   try{state.portal=await api("memberBootstrap",{sessionToken:session()});saveMemberSnapshot();renderShell()}
-  catch(err){setSession("");localStorage.removeItem(MEMBER_SNAPSHOT_KEY);loginScreen();showMessage("Accedi di nuovo",err.message)}
+  catch(err){
+    if(invalidSessionError(err)){setSession("");localStorage.removeItem(MEMBER_SNAPSHOT_KEY);state.portal=null;loginScreen();showMessage("Accedi di nuovo",err.message);return}
+    if(cached){state.portal=cached;renderShell();toast("Connessione assente · accesso mantenuto")}
+    else connectionScreen(err.message)
+  }
 }
 function renderShell(){navEl.hidden=false;profileBtn.hidden=false;profileBtn.textContent=initials(state.portal.member.name);render()}
 function render(){document.querySelectorAll("#bottomNav button").forEach(b=>b.classList.toggle("active",b.dataset.view===state.view));({home:renderHome,payments:renderPayments,documents:renderDocuments}[state.view]||renderHome)()}
