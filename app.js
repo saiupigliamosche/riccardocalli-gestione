@@ -1,4 +1,4 @@
-const CONFIG={VERSION:"0.10.1",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",ENROLLMENT_FORM:"https://form.jotform.com/262643062831050",SEASON_START:"2026-10-01",SEASON_END:"2027-06-09"};
+const CONFIG={VERSION:"0.10.2",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",ENROLLMENT_FORM:"https://form.jotform.com/262643062831050",SEASON_START:"2026-10-01",SEASON_END:"2027-06-09"};
 const now=new Date();
 const state={view:"home",today:null,trials:[],members:[],payments:[],lessons:[],dashboard:null,portal:{deadlines:[],documents:[],rsvps:[]},monthYear:now.getFullYear(),monthIndex:now.getMonth(),selectedDate:null};
 const memberDirectory={filter:"Attivo",query:""};
@@ -129,17 +129,16 @@ function defaultLessonDate(){
   const start=new Date(state.monthYear,state.monthIndex,1);
   const end=new Date(state.monthYear,state.monthIndex+1,0);
   const today=new Date();today.setHours(0,0,0,0);
-  const seasonStart=new Date(CONFIG.SEASON_START+"T12:00:00"),seasonEnd=new Date(CONFIG.SEASON_END+"T12:00:00");
-  for(let d=new Date(start);d<=end;d.setDate(d.getDate()+1)){const x=new Date(d),key=dateKey(x);if(courseDay(x)&&x>=today&&key>=CONFIG.SEASON_START&&key<=CONFIG.SEASON_END)return key}
-  for(let d=new Date(start);d<=end;d.setDate(d.getDate()+1)){const x=new Date(d),key=dateKey(x);if(courseDay(x)&&key>=CONFIG.SEASON_START&&key<=CONFIG.SEASON_END)return key}
-  const realNow=new Date();
-  if(state.monthYear===realNow.getFullYear()&&state.monthIndex===realNow.getMonth()){
-    const next=new Date(Math.max(today.getTime(),seasonStart.getTime()));
-    for(let i=0;i<21&&next<=seasonEnd;i++,next.setDate(next.getDate()+1)){
-      if(courseDay(next)){state.monthYear=next.getFullYear();state.monthIndex=next.getMonth();return dateKey(next)}
-    }
+  const dates=[];
+  for(let d=new Date(start);d<=end;d.setDate(d.getDate()+1))if(courseDay(d))dates.push(dateKey(d));
+  if(!dates.length)return null;
+  const currentMonth=state.monthYear===today.getFullYear()&&state.monthIndex===today.getMonth();
+  if(currentMonth){
+    const key=dateKey(today);
+    if(dates.includes(key))return key;
+    return dates.find(x=>x>key)||dates[dates.length-1];
   }
-  return null;
+  return end<today?dates[dates.length-1]:dates[0];
 }
 function nextRsvpDate(){return [...new Set((state.portal?.rsvps||[]).map(x=>x.date).filter(x=>x>=todayKey()))].sort()[0]||""}
 function trialsFor(key){return (state.trials||[]).filter(t=>t.date===key&&t.status!=="Annullato")}
