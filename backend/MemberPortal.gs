@@ -71,12 +71,12 @@ function ensurePortalSheet_(name, requiredHeaders) {
   return sh;
 }
 
-function portalAdminData_() {
+function portalAdminData_(memberRows) {
   ensureUpcomingRsvps_(6);
   return {
     deadlines: deadlineList_(),
     documents: documentList_(),
-    rsvps: rsvpList_(),
+    rsvps: rsvpList_(memberRows),
     portalUrl: MEMBER_PORTAL.url,
     automationActive: ScriptApp.getProjectTriggers().some(function(t) { return t.getHandlerFunction() === 'runMemberPortalAutomation'; })
   };
@@ -612,12 +612,15 @@ function ensureRsvpsForDates_(dateKeys) {
   }
 }
 
-function rsvpList_() {
+function rsvpList_(memberRows) {
   const min = new Date(); min.setDate(min.getDate()-35);
   const max = new Date(); max.setDate(max.getDate()+50);
   const minKey = Utilities.formatDate(min,ADMIN.timezone,'yyyy-MM-dd'), maxKey = Utilities.formatDate(max,ADMIN.timezone,'yyyy-MM-dd');
+  const liveNames = {};
+  (memberRows || []).forEach(function(member) { liveNames[member.id] = member.name; });
   return table_(sheet_(ADMIN.sheets.rsvps)).map(function(r) {
-    return { id:str_(r['Conferma ID']), lessonId:str_(r['Lezione ID']), date:dateKey_(r['Data lezione']), personId:str_(r['Persona ID']), name:str_(r['Nome e cognome']), expected:str_(r['Previsto']) !== 'No', response:str_(r['Risposta']) || 'In attesa', respondedAt:dateIso_(r['Data risposta']) };
+    const personId = str_(r['Persona ID']);
+    return { id:str_(r['Conferma ID']), lessonId:str_(r['Lezione ID']), date:dateKey_(r['Data lezione']), personId:personId, name:liveNames[personId] || str_(r['Nome e cognome']), expected:str_(r['Previsto']) !== 'No', response:str_(r['Risposta']) || 'In attesa', respondedAt:dateIso_(r['Data risposta']) };
   }).filter(function(x) { return x.date >= minKey && x.date <= maxKey; });
 }
 

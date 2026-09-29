@@ -19,7 +19,7 @@ const ADMIN = {
 };
 
 function doGet() {
-  return json_({ ok: true, service: 'Parkour Course OS API', version: '1.6.1' });
+  return json_({ ok: true, service: 'Parkour Course OS API', version: '1.6.2' });
 }
 
 function doPost(e) {
@@ -97,7 +97,7 @@ function bootstrap_() {
     payments: payments,
     lessons: lessons,
     dashboard: dashboard_(members, trials),
-    portal: portalAdminData_(),
+    portal: portalAdminData_(members),
     meta: {
       generatedAt: new Date().toISOString(),
       owner: ADMIN.ownerEmail
