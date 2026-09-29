@@ -35,7 +35,7 @@ Non inserirla nel repository.
 
 ## 5. Autorizzazioni necessarie
 La nuova area usa i servizi Apps Script per:
-- inviare email con link temporanei e promemoria;
+- inviare email con link personali permanenti e promemoria;
 - salvare in Google Drive i documenti caricati dall'amministratore;
 - creare il trigger orario delle automazioni.
 
@@ -86,7 +86,7 @@ Verificare:
 - elenco Prove;
 - registrazione di una presenza test;
 - registrazione di un pagamento test;
-- richiesta link temporaneo dall'area iscritti;
+- richiesta link personale permanente dall'area iscritti;
 - risposta Sì/No a una lezione e verifica nel gestionale;
 - modifica manuale di una scadenza;
 - caricamento e download di un PDF di prova;
