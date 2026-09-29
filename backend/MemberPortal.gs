@@ -106,7 +106,22 @@ function memberLogin_(data) {
   const member = memberForAccess_(access);
   if (!member || member.status !== 'Attivo') throw new Error('Area personale non disponibile per questo profilo.');
   markAccess_(access.row, {'Usato': new Date(), 'Ultimo accesso': new Date()});
+  confirmLatestAppRequest_(member.email);
   return memberSessionResult_(member, 'Area iscritti');
+}
+
+function confirmLatestAppRequest_(email) {
+  const sh = sheet_(ADMIN.sheets.memberAccess), h = headers_(sh), values = sh.getDataRange().getValues();
+  const cutoff = Date.now() - 60 * 60000;
+  for (let i = values.length - 1; i >= 1; i--) {
+    const r = rowObj_(h, values[i]);
+    const created = r['Creato'] instanceof Date ? r['Creato'].getTime() : new Date(r['Creato']).getTime();
+    if (created < cutoff) break;
+    if (normalizeEmail_(r['Email']) !== normalizeEmail_(email) || str_(r['Tipo']) !== 'Login' || !str_(r['Richiesta app hash']) || r['Revocato']) continue;
+    markAccess_(i + 1, {'Usato': new Date(), 'Ultimo accesso': new Date()});
+    return true;
+  }
+  return false;
 }
 
 function memberClaimLogin_(data) {
