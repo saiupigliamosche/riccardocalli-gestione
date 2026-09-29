@@ -1,4 +1,4 @@
-const CONFIG={VERSION:"0.10.0",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",ENROLLMENT_FORM:"https://form.jotform.com/262643062831050",SEASON_START:"2026-10-01",SEASON_END:"2027-06-09"};
+const CONFIG={VERSION:"0.10.1",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",ENROLLMENT_FORM:"https://form.jotform.com/262643062831050",SEASON_START:"2026-10-01",SEASON_END:"2027-06-09"};
 const now=new Date();
 const state={view:"home",today:null,trials:[],members:[],payments:[],lessons:[],dashboard:null,portal:{deadlines:[],documents:[],rsvps:[]},monthYear:now.getFullYear(),monthIndex:now.getMonth(),selectedDate:null};
 const memberDirectory={filter:"Attivo",query:""};
@@ -208,7 +208,7 @@ function rsvpAdminSummary(key){
   const rows=(state.portal?.rsvps||[]).filter(x=>x.date===key),yes=rows.filter(x=>x.response==="Sì"),no=rows.filter(x=>x.response==="No"),waiting=rows.filter(x=>x.response!=="Sì"&&x.response!=="No");
   if(!rows.length)return '<div class="rsvp-admin empty">Le conferme anticipate compariranno qui quando l’area iscritti sarà attiva per questa lezione.</div>';
   const names=list=>list.length?list.map(x=>esc(x.name)).join(", "):"Nessuno";
-  return '<section class="rsvp-admin"><div class="section-head"><h2>CONFERME ANTICIPATE</h2><span class="badge ok">'+yes.length+'/'+rows.length+'</span></div><div class="rsvp-admin-counts"><div><strong>'+yes.length+'</strong><span>Ci saranno</span></div><div><strong>'+no.length+'</strong><span>Non ci saranno</span></div><div><strong>'+waiting.length+'</strong><span>In attesa</span></div></div><details open><summary>Presenti confermati</summary><p>'+names(yes)+'</p></details><details><summary>Assenti e in attesa</summary><p><b>No:</b> '+names(no)+'</p><p><b>In attesa:</b> '+names(waiting)+'</p></details></section>';
+  return '<section class="rsvp-admin"><div class="section-head"><h2>CONFERME ANTICIPATE</h2><span class="badge ok">'+yes.length+'/'+rows.length+'</span></div><div class="rsvp-admin-counts"><div><strong>'+yes.length+'</strong><span>Ci saranno</span></div><div><strong>'+no.length+'</strong><span>Non ci saranno</span></div><div><strong>'+waiting.length+'</strong><span>In attesa</span></div></div><details open><summary>Ci saranno · '+yes.length+'</summary><p>'+names(yes)+'</p></details><details open><summary>Non ci saranno · '+no.length+'</summary><p>'+names(no)+'</p></details><details open><summary>In attesa · '+waiting.length+'</summary><p>'+names(waiting)+'</p></details></section>';
 }
 function personSection(title,list,trial){
   return '<section class="section"><div class="section-head"><h2>'+title+'</h2><span class="badge '+(trial?"trial":"ok")+'">'+list.length+'</span></div><div class="person-list">'+
