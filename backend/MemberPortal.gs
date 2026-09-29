@@ -13,11 +13,12 @@ const MEMBER_PORTAL_HEADERS = {
   deadlines: ['Scadenza ID','Persona ID','Nome e cognome','Tipo','Numero rata','Importo','Data scadenza','Stato','Pagamento ID','Data pagamento','Promemoria -7','Promemoria giorno','Sollecito','Note','Ultimo aggiornamento'],
   documents: ['Documento ID','Persona ID','Nome e cognome','Tipo','Titolo','File ID','Nome file','MIME type','Dimensione','Data caricamento','Visibile iscritto','Caricato da','Note'],
   rsvps: ['Conferma ID','Lezione ID','Data lezione','Persona ID','Nome e cognome','Previsto','Risposta','Data risposta','Notifica 09','Promemoria 16','Ultimo aggiornamento'],
-  access: ['Accesso ID','Persona ID','Email','Tipo','Token hash','Creato','Scadenza','Usato','Revocato','Ultimo accesso','Motivo']
+  access: ['Accesso ID','Persona ID','Email','Tipo','Token hash','Creato','Scadenza','Usato','Revocato','Ultimo accesso','Motivo'],
+  push: ['Dispositivo ID','Persona ID','Nome e cognome','Email','Token FCM','Piattaforma','User agent','Creato','Ultimo aggiornamento','Ultimo invio','Ultimo errore','Revocato']
 };
 
 function isMemberPortalAction_(action) {
-  return ['memberRequestLink','memberLogin','memberBootstrap','memberSetRsvp','memberGetDocument','memberLogout'].indexOf(action) >= 0;
+  return ['memberRequestLink','memberLogin','memberBootstrap','memberSetRsvp','memberGetDocument','memberPushConfig','memberRegisterPush','memberUnregisterPush','memberLogout'].indexOf(action) >= 0;
 }
 
 function dispatchMemberPortalAction_(action, data) {
@@ -27,6 +28,9 @@ function dispatchMemberPortalAction_(action, data) {
   if (action === 'memberBootstrap') return memberBootstrap_(data);
   if (action === 'memberSetRsvp') return memberSetRsvp_(data);
   if (action === 'memberGetDocument') return memberGetDocument_(data);
+  if (action === 'memberPushConfig') return memberPushConfig_(data);
+  if (action === 'memberRegisterPush') return memberRegisterPush_(data);
+  if (action === 'memberUnregisterPush') return memberUnregisterPush_(data);
   if (action === 'memberLogout') return memberLogout_(data);
   throw new Error('Azione area iscritti non valida.');
 }
@@ -36,6 +40,7 @@ function ensureMemberPortalSchema_() {
   ensurePortalSheet_(ADMIN.sheets.documents, MEMBER_PORTAL_HEADERS.documents);
   ensurePortalSheet_(ADMIN.sheets.rsvps, MEMBER_PORTAL_HEADERS.rsvps);
   ensurePortalSheet_(ADMIN.sheets.memberAccess, MEMBER_PORTAL_HEADERS.access);
+  ensurePortalSheet_(ADMIN.sheets.pushSubscriptions, MEMBER_PORTAL_HEADERS.push);
 }
 
 function ensurePortalSheet_(name, requiredHeaders) {
@@ -71,7 +76,7 @@ function portalAdminData_() {
 function memberRequestLink_(data) {
   const email = normalizeEmail_(data.email);
   if (!email) throw new Error('Inserisci un indirizzo email valido.');
-  const member = isReferenceEmail_(email) ? referenceMember_() : findMemberByEmail_(email);
+  const member = findMemberByEmail_(email);
   if (member && !recentLoginLinkExists_(email, 2)) sendMagicLinkEmail_(member, 'accesso');
   return { ok: true, message: 'Se l’email è registrata, riceverai il link di accesso entro pochi minuti.' };
 }
@@ -119,6 +124,7 @@ function memberPortalPayload_(member) {
     payments: memberPaymentList_(member.id),
     documents: documentList_().filter(function(x) { return x.personId === member.id && x.visible; }),
     rsvp: rsvp,
+    push: pushMemberStatus_(member.id),
     generatedAt: new Date().toISOString()
   };
 }
@@ -159,23 +165,8 @@ function findMemberByEmail_(email) {
   return memberList_().find(function(m) { return normalizeEmail_(m.email) === email && m.status === 'Attivo'; }) || null;
 }
 
-function isReferenceEmail_(email) {
-  return normalizeEmail_(email) === normalizeEmail_(ADMIN.ownerEmail);
-}
-
-function referenceMember_() {
-  return {
-    id: 'REFERENCE-OWNER',
-    name: 'Riccardo Calli',
-    email: ADMIN.ownerEmail,
-    plan: 'Accesso di riferimento',
-    frequency: '',
-    status: 'Attivo'
-  };
-}
-
 function memberForAccess_(access) {
-  return isReferenceEmail_(access.email) ? referenceMember_() : findMember_(access.personId, true);
+  return findMember_(access.personId, true) || findMemberByEmail_(access.email);
 }
 
 function recentLoginLinkExists_(email, minutes) {
@@ -373,6 +364,166 @@ function memberGetDocument_(data) {
   throw new Error('Documento non disponibile.');
 }
 
+function pushSettings_() {
+  const props = PropertiesService.getScriptProperties();
+  let webConfig = {};
+  try { webConfig = JSON.parse(props.getProperty('FCM_WEB_CONFIG') || '{}'); } catch (_) {}
+  const settings = {
+    projectId: clean_(props.getProperty('FCM_PROJECT_ID') || webConfig.projectId),
+    clientEmail: clean_(props.getProperty('FCM_CLIENT_EMAIL')),
+    privateKey: String(props.getProperty('FCM_PRIVATE_KEY') || '').replace(/\\n/g,'\n'),
+    vapidKey: clean_(props.getProperty('FCM_VAPID_PUBLIC_KEY')),
+    webConfig: webConfig
+  };
+  settings.enabled = !!(settings.projectId && settings.clientEmail && settings.privateKey && settings.vapidKey && settings.webConfig.apiKey && settings.webConfig.messagingSenderId && settings.webConfig.appId);
+  return settings;
+}
+
+function memberPushConfig_(data) {
+  authorizeMemberSession_(data.sessionToken);
+  const settings = pushSettings_();
+  return { ok:true, data:{ enabled:settings.enabled, firebaseConfig:settings.enabled ? settings.webConfig : {}, vapidKey:settings.enabled ? settings.vapidKey : '' } };
+}
+
+function pushMemberStatus_(personId) {
+  const configured = pushSettings_().enabled;
+  if (!configured) return { available:false, devices:0 };
+  const devices = table_(sheet_(ADMIN.sheets.pushSubscriptions)).filter(function(r) {
+    return str_(r['Persona ID']) === personId && str_(r['Token FCM']) && !r['Revocato'];
+  }).length;
+  return { available:true, devices:devices };
+}
+
+function memberRegisterPush_(data) {
+  const auth = authorizeMemberSession_(data.sessionToken), token = String(data.fcmToken || '').trim();
+  const deviceId = clean_(data.deviceId).slice(0,120), platform = clean_(data.platform).slice(0,80), userAgent = clean_(data.userAgent).slice(0,500);
+  if (!pushSettings_().enabled) throw new Error('Le notifiche push non sono ancora configurate.');
+  if (!deviceId || token.length < 20 || token.length > 4096) throw new Error('Registrazione del dispositivo non valida.');
+  const sh = sheet_(ADMIN.sheets.pushSubscriptions), h = headers_(sh), rows = sh.getDataRange().getValues();
+  let row = 0;
+  for (let i=1;i<rows.length;i++) {
+    const r = rowObj_(h,rows[i]);
+    if ((str_(r['Dispositivo ID']) === deviceId && str_(r['Persona ID']) === auth.member.id) || str_(r['Token FCM']) === token) { row = i + 1; break; }
+  }
+  const values = {
+    'Dispositivo ID':deviceId, 'Persona ID':auth.member.id, 'Nome e cognome':auth.member.name,
+    'Email':auth.member.email, 'Token FCM':token, 'Piattaforma':platform, 'User agent':userAgent,
+    'Ultimo aggiornamento':new Date(), 'Ultimo errore':'', 'Revocato':''
+  };
+  if (row) Object.keys(values).forEach(function(k) { setCellByHeader_(sh,row,h,k,values[k]); });
+  else {
+    values['Creato'] = new Date();
+    appendByHeaders_(sh,values);
+  }
+  const test = sendFcmToken_(token, {
+    title:'Notifiche attivate',
+    body:'Riceverai qui conferme delle lezioni e promemoria dei pagamenti.',
+    url:MEMBER_PORTAL.url,
+    tag:'push-enabled'
+  });
+  if (!test.ok) markPushToken_(token, {'Ultimo errore':test.error || 'Invio di prova non riuscito'});
+  return { ok:true, data:{ registered:true, testSent:test.ok, devices:pushMemberStatus_(auth.member.id).devices } };
+}
+
+function memberUnregisterPush_(data) {
+  const auth = authorizeMemberSession_(data.sessionToken), token = String(data.fcmToken || '').trim(), deviceId = clean_(data.deviceId);
+  const sh = sheet_(ADMIN.sheets.pushSubscriptions), h = headers_(sh), rows = sh.getDataRange().getValues();
+  for (let i=1;i<rows.length;i++) {
+    const r = rowObj_(h,rows[i]);
+    if (str_(r['Persona ID']) !== auth.member.id) continue;
+    if ((token && str_(r['Token FCM']) === token) || (deviceId && str_(r['Dispositivo ID']) === deviceId)) {
+      setCellByHeader_(sh,i+1,h,'Revocato',new Date());
+      setCellByHeader_(sh,i+1,h,'Ultimo aggiornamento',new Date());
+    }
+  }
+  return { ok:true };
+}
+
+function markPushToken_(token, fields) {
+  const sh = sheet_(ADMIN.sheets.pushSubscriptions), h = headers_(sh), rows = sh.getDataRange().getValues();
+  for (let i=1;i<rows.length;i++) {
+    if (str_(rows[i][h.indexOf('Token FCM')]) !== token) continue;
+    Object.keys(fields).forEach(function(k) { setCellByHeader_(sh,i+1,h,k,fields[k]); });
+    return;
+  }
+}
+
+function activePushTokens_(personId) {
+  return table_(sheet_(ADMIN.sheets.pushSubscriptions)).filter(function(r) {
+    return str_(r['Persona ID']) === personId && str_(r['Token FCM']) && !r['Revocato'];
+  }).map(function(r) { return str_(r['Token FCM']); });
+}
+
+function sendMemberPush_(personId, message) {
+  if (!pushSettings_().enabled) return { sent:0, failed:0 };
+  let sent = 0, failed = 0;
+  activePushTokens_(personId).forEach(function(token) {
+    const result = sendFcmToken_(token,message);
+    if (result.ok) {
+      sent++;
+      markPushToken_(token, {'Ultimo invio':new Date(),'Ultimo errore':''});
+    } else {
+      failed++;
+      const fields = {'Ultimo errore':result.error || 'Invio non riuscito','Ultimo aggiornamento':new Date()};
+      if (result.invalid) fields['Revocato'] = new Date();
+      markPushToken_(token,fields);
+    }
+  });
+  return { sent:sent, failed:failed };
+}
+
+function sendFcmToken_(token, message) {
+  try {
+    const settings = pushSettings_();
+    if (!settings.enabled) return { ok:false, error:'Firebase non configurato' };
+    const response = UrlFetchApp.fetch('https://fcm.googleapis.com/v1/projects/' + encodeURIComponent(settings.projectId) + '/messages:send', {
+      method:'post', contentType:'application/json', muteHttpExceptions:true,
+      headers:{Authorization:'Bearer ' + fcmAccessToken_(settings)},
+      payload:JSON.stringify({message:{token:token,data:{
+        title:String(message.title || 'Corso Parkour Padova'),
+        body:String(message.body || ''),
+        url:String(message.url || MEMBER_PORTAL.url),
+        tag:String(message.tag || 'parkour-update')
+      },webpush:{headers:{TTL:'86400'}}}})
+    });
+    const code = response.getResponseCode(), body = response.getContentText();
+    if (code >= 200 && code < 300) return { ok:true };
+    let detail = body;
+    try { const parsed = JSON.parse(body); detail = parsed.error && parsed.error.message ? parsed.error.message : body; } catch (_) {}
+    return { ok:false, error:('FCM ' + code + ': ' + detail).slice(0,500), invalid:code === 404 || /UNREGISTERED|not a valid FCM registration token/i.test(detail) };
+  } catch (err) {
+    return { ok:false, error:safeError_(err).slice(0,500) };
+  }
+}
+
+function fcmAccessToken_(settings) {
+  const cache = CacheService.getScriptCache(), cached = cache.get('FCM_ACCESS_TOKEN');
+  if (cached) return cached;
+  const now = Math.floor(Date.now()/1000), header = {alg:'RS256',typ:'JWT'}, claims = {
+    iss:settings.clientEmail,
+    scope:'https://www.googleapis.com/auth/firebase.messaging',
+    aud:'https://oauth2.googleapis.com/token',
+    iat:now,
+    exp:now + 3600
+  };
+  const unsigned = base64UrlText_(JSON.stringify(header)) + '.' + base64UrlText_(JSON.stringify(claims));
+  const signature = Utilities.computeRsaSha256Signature(unsigned,settings.privateKey);
+  const assertion = unsigned + '.' + Utilities.base64EncodeWebSafe(signature).replace(/=+$/,'');
+  const response = UrlFetchApp.fetch('https://oauth2.googleapis.com/token', {
+    method:'post', contentType:'application/x-www-form-urlencoded', muteHttpExceptions:true,
+    payload:{grant_type:'urn:ietf:params:oauth:grant-type:jwt-bearer',assertion:assertion}
+  });
+  if (response.getResponseCode() !== 200) throw new Error('Autorizzazione Firebase non riuscita: ' + response.getContentText());
+  const token = JSON.parse(response.getContentText()).access_token;
+  if (!token) throw new Error('Firebase non ha restituito un token di accesso.');
+  cache.put('FCM_ACCESS_TOKEN',token,3300);
+  return token;
+}
+
+function base64UrlText_(value) {
+  return Utilities.base64EncodeWebSafe(String(value),Utilities.Charset.UTF_8).replace(/=+$/,'');
+}
+
 function portalFolder_() {
   const props = PropertiesService.getScriptProperties(), saved = props.getProperty('MEMBER_DOCUMENTS_FOLDER_ID');
   if (saved) try { return DriveApp.getFolderById(saved); } catch (_) {}
@@ -486,11 +637,19 @@ function sendRsvpNotifications_(key, hour) {
     const flag = hour === 9 ? 'Notifica 09' : 'Promemoria 16';
     if (r[flag]) continue;
     const member = findMember_(str_(r['Persona ID']),true);
-    if (!member || !normalizeEmail_(member.email)) continue;
-    const link = createMagicLink_(member,hour === 9 ? 'Conferma lezione' : 'Promemoria conferma');
+    if (!member) continue;
     const intro = hour === 9 ? 'Oggi c’è lezione. Ci sarai?' : 'Non hai ancora confermato la presenza alla lezione di oggi.';
-    const body = '<p>Ciao '+html_(member.name)+',</p><p>'+intro+'</p>'+emailButton_(link,'CONFERMA SÌ O NO')+'<p style="color:#66736f;font-size:13px">Puoi modificare la risposta fino alle 19:00.</p>';
-    MailApp.sendEmail({to:member.email,subject:(hour===9?'Conferma presenza':'Promemoria presenza')+' · lezione di oggi',htmlBody:emailLayout_('Lezione di oggi',body),name:'Corso Parkour Padova'});
+    if (normalizeEmail_(member.email)) {
+      const link = createMagicLink_(member,hour === 9 ? 'Conferma lezione' : 'Promemoria conferma');
+      const body = '<p>Ciao '+html_(member.name)+',</p><p>'+intro+'</p>'+emailButton_(link,'CONFERMA SÌ O NO')+'<p style="color:#66736f;font-size:13px">Puoi modificare la risposta fino alle 19:00.</p>';
+      MailApp.sendEmail({to:member.email,subject:(hour===9?'Conferma presenza':'Promemoria presenza')+' · lezione di oggi',htmlBody:emailLayout_('Lezione di oggi',body),name:'Corso Parkour Padova'});
+    }
+    sendMemberPush_(member.id,{
+      title:hour === 9 ? 'Conferma la lezione di oggi' : 'Conferma ancora in attesa',
+      body:hour === 9 ? 'Lezione 19:00–20:30. Tocca per rispondere Sì o No.' : 'La lezione inizia alle 19:00. Tocca per confermare.',
+      url:MEMBER_PORTAL.url + '#home',
+      tag:'rsvp-' + key
+    });
     setCellByHeader_(sh,i+1,h,flag,new Date());
   }
 }
@@ -504,10 +663,19 @@ function sendPaymentReminders_(todayKey) {
     const delta = Math.round((parseKey_(due).getTime()-parseKey_(todayKey).getTime())/86400000);
     let flag = ''; if (delta === 7) flag = 'Promemoria -7'; else if (delta === 0) flag = 'Promemoria giorno'; else if (delta === -3) flag = 'Sollecito';
     if (!flag || r[flag]) continue;
-    const member = findMember_(str_(r['Persona ID']),true); if (!member || !normalizeEmail_(member.email)) continue;
-    const link = createMagicLink_(member,'Promemoria pagamento'), amount = num_(r['Importo']).toFixed(2).replace('.',',');
-    const body = '<p>Ciao '+html_(member.name)+',</p><p>promemoria per il pagamento di <strong>€ '+amount+'</strong>, con scadenza '+html_(due)+'.</p>'+emailButton_(link,'VEDI PAGAMENTI')+'<p style="color:#66736f;font-size:13px">Se hai già pagato, ignora questo messaggio: l’amministratore aggiornerà lo stato.</p>';
-    MailApp.sendEmail({to:member.email,subject:'Promemoria pagamento · Corso Parkour Padova',htmlBody:emailLayout_('Scadenza pagamento',body),name:'Corso Parkour Padova'});
+    const member = findMember_(str_(r['Persona ID']),true); if (!member) continue;
+    const amount = num_(r['Importo']).toFixed(2).replace('.',',');
+    if (normalizeEmail_(member.email)) {
+      const link = createMagicLink_(member,'Promemoria pagamento');
+      const body = '<p>Ciao '+html_(member.name)+',</p><p>promemoria per il pagamento di <strong>€ '+amount+'</strong>, con scadenza '+html_(due)+'.</p>'+emailButton_(link,'VEDI PAGAMENTI')+'<p style="color:#66736f;font-size:13px">Se hai già pagato, ignora questo messaggio: l’amministratore aggiornerà lo stato.</p>';
+      MailApp.sendEmail({to:member.email,subject:'Promemoria pagamento · Corso Parkour Padova',htmlBody:emailLayout_('Scadenza pagamento',body),name:'Corso Parkour Padova'});
+    }
+    sendMemberPush_(member.id,{
+      title:delta < 0 ? 'Pagamento scaduto' : 'Pagamento in scadenza',
+      body:'Importo € '+amount+' · scadenza '+due+'. Tocca per vedere i dettagli.',
+      url:MEMBER_PORTAL.url + '#payments',
+      tag:'payment-' + str_(r['Scadenza ID'])
+    });
     setCellByHeader_(sh,i+1,h,flag,new Date());
   }
 }
