@@ -13,12 +13,13 @@ const ADMIN = {
     deadlines: 'Scadenze',
     documents: 'Documenti',
     rsvps: 'Conferme lezioni',
-    memberAccess: 'Accessi iscritti'
+    memberAccess: 'Accessi iscritti',
+    pushSubscriptions: 'Notifiche push'
   }
 };
 
 function doGet() {
-  return json_({ ok: true, service: 'Parkour Course OS API', version: '1.5.2' });
+  return json_({ ok: true, service: 'Parkour Course OS API', version: '1.6.0' });
 }
 
 function doPost(e) {
