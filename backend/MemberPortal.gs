@@ -1,7 +1,7 @@
 const MEMBER_PORTAL = {
   url: 'https://saiupigliamosche.github.io/riccardocalli-gestione/iscritti/',
   loginMinutes: 30,
-  sessionDays: 30,
+  sessionDays: 3650,
   maxDocumentBytes: 4500000,
   folderName: 'Parkour Course OS - Documenti iscritti',
   seasonStart: '2026-10-01',
@@ -9,24 +9,25 @@ const MEMBER_PORTAL = {
   installmentDates: ['2026-10-01','2027-01-01','2027-04-01']
 };
 
-const MEMBER_PORTAL_SCHEMA_VERSION = '2026-09-29-r2';
+const MEMBER_PORTAL_SCHEMA_VERSION = '2026-09-29-r3';
 
 const MEMBER_PORTAL_HEADERS = {
   deadlines: ['Scadenza ID','Persona ID','Nome e cognome','Tipo','Numero rata','Importo','Data scadenza','Stato','Pagamento ID','Data pagamento','Promemoria -7','Promemoria giorno','Sollecito','Note','Ultimo aggiornamento'],
   documents: ['Documento ID','Persona ID','Nome e cognome','Tipo','Titolo','File ID','Nome file','MIME type','Dimensione','Data caricamento','Visibile iscritto','Caricato da','Note'],
   rsvps: ['Conferma ID','Lezione ID','Data lezione','Persona ID','Nome e cognome','Previsto','Risposta','Data risposta','Notifica 09','Promemoria 16','Ultimo aggiornamento'],
-  access: ['Accesso ID','Persona ID','Email','Tipo','Token hash','Creato','Scadenza','Usato','Revocato','Ultimo accesso','Motivo'],
+  access: ['Accesso ID','Persona ID','Email','Tipo','Token hash','Creato','Scadenza','Usato','Revocato','Ultimo accesso','Motivo','Richiesta app hash'],
   push: ['Dispositivo ID','Persona ID','Nome e cognome','Email','Token FCM','Piattaforma','User agent','Creato','Ultimo aggiornamento','Ultimo invio','Ultimo errore','Revocato']
 };
 
 function isMemberPortalAction_(action) {
-  return ['memberRequestLink','memberLogin','memberBootstrap','memberSetRsvp','memberGetDocument','memberPushConfig','memberRegisterPush','memberUnregisterPush','memberLogout'].indexOf(action) >= 0;
+  return ['memberRequestLink','memberLogin','memberClaimLogin','memberBootstrap','memberSetRsvp','memberGetDocument','memberPushConfig','memberRegisterPush','memberUnregisterPush','memberLogout'].indexOf(action) >= 0;
 }
 
 function dispatchMemberPortalAction_(action, data) {
   ensureMemberPortalSchemaOnce_();
   if (action === 'memberRequestLink') return memberRequestLink_(data);
   if (action === 'memberLogin') return memberLogin_(data);
+  if (action === 'memberClaimLogin') return memberClaimLogin_(data);
   if (action === 'memberBootstrap') return memberBootstrap_(data);
   if (action === 'memberSetRsvp') return memberSetRsvp_(data);
   if (action === 'memberGetDocument') return memberGetDocument_(data);
@@ -85,8 +86,15 @@ function portalAdminData_(memberRows) {
 function memberRequestLink_(data) {
   const email = normalizeEmail_(data.email);
   if (!email) throw new Error('Inserisci un indirizzo email valido.');
+  const appRequestToken = validAppRequestToken_(data.appRequestToken) ? clean_(data.appRequestToken) : '';
   const member = findMemberByEmail_(email);
-  if (member && !recentLoginLinkExists_(email, 2)) sendMagicLinkEmail_(member, 'accesso');
+  if (member && appRequestToken) {
+    const recent = findRecentUnusedLogin_(email, 2);
+    if (recent) markAccess_(recent.row, {'Richiesta app hash': tokenHash_(appRequestToken)});
+    else sendMagicLinkEmail_(member, 'accesso', appRequestToken);
+  } else if (member && !recentLoginLinkExists_(email, 2)) {
+    sendMagicLinkEmail_(member, 'accesso');
+  }
   return { ok: true, message: 'Se l’email è registrata, riceverai il link di accesso entro pochi minuti.' };
 }
 
@@ -98,14 +106,45 @@ function memberLogin_(data) {
   const member = memberForAccess_(access);
   if (!member || member.status !== 'Attivo') throw new Error('Area personale non disponibile per questo profilo.');
   markAccess_(access.row, {'Usato': new Date(), 'Ultimo accesso': new Date()});
+  return memberSessionResult_(member, 'Area iscritti');
+}
+
+function memberClaimLogin_(data) {
+  const raw = clean_(data.appRequestToken);
+  if (!validAppRequestToken_(raw)) throw new Error('Richiesta di accesso non valida.');
+  const requestHash = tokenHash_(raw);
+  let access = findAccessByRequestHash_(requestHash);
+  if (!access || access.revoked || !access.used) return { ok: true, data: { ready: false } };
+  const lock = LockService.getScriptLock();
+  let member = null, session = null;
+  lock.waitLock(10000);
+  try {
+    access = findAccessByRequestHash_(requestHash);
+    if (!access || access.revoked || !access.used) return { ok: true, data: { ready: false } };
+    member = memberForAccess_(access);
+    if (!member || member.status !== 'Attivo') throw new Error('Area personale non disponibile per questo profilo.');
+    session = createMemberSession_(member, 'App installata');
+    markAccess_(access.row, {'Richiesta app hash': '', 'Ultimo accesso': new Date()});
+  } finally {
+    try { lock.releaseLock(); } catch (_) {}
+  }
+  return { ok: true, data: { ready: true, sessionToken: session.sessionToken, expiresAt: session.expiresAt, portal: memberPortalPayload_(member) } };
+}
+
+function memberSessionResult_(member, reason) {
+  const session = createMemberSession_(member, reason);
+  return { ok: true, data: { sessionToken: session.sessionToken, expiresAt: session.expiresAt, portal: memberPortalPayload_(member) } };
+}
+
+function createMemberSession_(member, reason) {
   const sessionToken = randomToken_();
   const expires = new Date(Date.now() + MEMBER_PORTAL.sessionDays * 86400000);
   appendByHeaders_(sheet_(ADMIN.sheets.memberAccess), {
     'Accesso ID': id_('ACC'), 'Persona ID': member.id, 'Email': member.email,
     'Tipo': 'Sessione', 'Token hash': tokenHash_(sessionToken), 'Creato': new Date(),
-    'Scadenza': expires, 'Ultimo accesso': new Date(), 'Motivo': 'Area iscritti'
+    'Scadenza': expires, 'Ultimo accesso': new Date(), 'Motivo': reason || 'Area iscritti'
   });
-  return { ok: true, data: { sessionToken: sessionToken, expiresAt: expires.toISOString(), portal: memberPortalPayload_(member) } };
+  return { sessionToken: sessionToken, expiresAt: expires.toISOString() };
 }
 
 function memberBootstrap_(data) {
@@ -180,8 +219,21 @@ function findAccessByHash_(hash, type) {
   for (let i = values.length - 1; i >= 1; i--) {
     const r = rowObj_(h, values[i]);
     if (str_(r['Token hash']) === hash && str_(r['Tipo']) === type) {
-      return { row: i + 1, personId: str_(r['Persona ID']), email: str_(r['Email']), used: !!r['Usato'], revoked: !!r['Revocato'], expiresAt: r['Scadenza'] instanceof Date ? r['Scadenza'] : new Date(r['Scadenza']) };
+      return { row: i + 1, personId: str_(r['Persona ID']), email: str_(r['Email']), used: !!r['Usato'], revoked: !!r['Revocato'], expiresAt: r['Scadenza'] instanceof Date ? r['Scadenza'] : new Date(r['Scadenza']), requestHash: str_(r['Richiesta app hash']) };
     }
+  }
+  return null;
+}
+
+function findAccessByRequestHash_(hash) {
+  const sh = sheet_(ADMIN.sheets.memberAccess), h = headers_(sh), values = sh.getDataRange().getValues();
+  const requestIndex = h.indexOf('Richiesta app hash');
+  if (requestIndex < 0) return null;
+  for (let i = values.length - 1; i >= 1; i--) {
+    if (str_(values[i][requestIndex]) !== hash) continue;
+    const r = rowObj_(h, values[i]);
+    if (str_(r['Tipo']) !== 'Login') continue;
+    return { row: i + 1, personId: str_(r['Persona ID']), email: str_(r['Email']), used: !!r['Usato'], revoked: !!r['Revocato'] };
   }
   return null;
 }
@@ -212,8 +264,24 @@ function recentLoginLinkExists_(email, minutes) {
   });
 }
 
+function findRecentUnusedLogin_(email, minutes) {
+  const sh = sheet_(ADMIN.sheets.memberAccess), h = headers_(sh), values = sh.getDataRange().getValues();
+  const cutoff = Date.now() - minutes * 60000;
+  for (let i = values.length - 1; i >= 1; i--) {
+    const r = rowObj_(h, values[i]);
+    const created = r['Creato'] instanceof Date ? r['Creato'].getTime() : new Date(r['Creato']).getTime();
+    if (created < cutoff) break;
+    if (normalizeEmail_(r['Email']) === email && str_(r['Tipo']) === 'Login' && !r['Usato'] && !r['Revocato']) return { row: i + 1 };
+  }
+  return null;
+}
+
 function randomToken_() {
   return Utilities.getUuid().replace(/-/g,'') + Utilities.getUuid().replace(/-/g,'');
+}
+
+function validAppRequestToken_(token) {
+  return /^[A-Za-z0-9_-]{32,200}$/.test(clean_(token));
 }
 
 function tokenHash_(token) {
@@ -223,20 +291,22 @@ function tokenHash_(token) {
   }).join('');
 }
 
-function createMagicLink_(member, reason) {
+function createMagicLink_(member, reason, appRequestToken) {
   const raw = randomToken_();
   appendByHeaders_(sheet_(ADMIN.sheets.memberAccess), {
     'Accesso ID': id_('ACC'), 'Persona ID': member.id, 'Email': member.email,
     'Tipo': 'Login', 'Token hash': tokenHash_(raw), 'Creato': new Date(),
-    'Scadenza': '', 'Motivo': (reason || 'Accesso') + ' · Link permanente'
+    'Scadenza': '', 'Motivo': (reason || 'Accesso') + ' · Link permanente',
+    'Richiesta app hash': appRequestToken ? tokenHash_(appRequestToken) : ''
   });
   return MEMBER_PORTAL.url + '?login=' + encodeURIComponent(raw);
 }
 
-function sendMagicLinkEmail_(member, reason) {
+function sendMagicLinkEmail_(member, reason, appRequestToken) {
   if (!normalizeEmail_(member.email)) return false;
-  const link = createMagicLink_(member, reason);
-  const body = '<p>Ciao ' + html_(member.name) + ',</p><p>usa il pulsante qui sotto per accedere alla tua area personale del Corso Parkour Padova.</p>' + emailButton_(link, 'APRI AREA PERSONALE') + '<p style="color:#66736f;font-size:13px">Questo link personale non scade e può essere usato su più dispositivi. Non inoltrarlo ad altre persone.</p>';
+  const link = createMagicLink_(member, reason, appRequestToken);
+  const appNote = appRequestToken ? '<p><strong>Se hai richiesto l’accesso dall’app installata:</strong> apri il link qui sotto in qualunque browser, poi torna all’icona Parkour Padova sulla schermata Home. L’accesso verrà completato automaticamente.</p>' : '';
+  const body = '<p>Ciao ' + html_(member.name) + ',</p>' + appNote + '<p>Usa il pulsante qui sotto per accedere alla tua area personale del Corso Parkour Padova.</p>' + emailButton_(link, 'APRI AREA PERSONALE') + '<p style="color:#66736f;font-size:13px">Questo link personale non scade e può essere usato su più dispositivi. Non inoltrarlo ad altre persone.</p>';
   MailApp.sendEmail({ to: member.email, subject: 'Accesso area personale · Corso Parkour Padova', htmlBody: emailLayout_('Area personale', body), name: 'Corso Parkour Padova' });
   return true;
 }
