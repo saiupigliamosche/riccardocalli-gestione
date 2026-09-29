@@ -1,10 +1,13 @@
-const CONFIG={VERSION:"0.9.0",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",ENROLLMENT_FORM:"https://form.jotform.com/262643062831050",SEASON_START:"2026-10-01",SEASON_END:"2027-06-09"};
+const CONFIG={VERSION:"0.10.0",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",ENROLLMENT_FORM:"https://form.jotform.com/262643062831050",SEASON_START:"2026-10-01",SEASON_END:"2027-06-09"};
 const now=new Date();
 const state={view:"home",today:null,trials:[],members:[],payments:[],lessons:[],dashboard:null,portal:{deadlines:[],documents:[],rsvps:[]},monthYear:now.getFullYear(),monthIndex:now.getMonth(),selectedDate:null};
 const memberDirectory={filter:"Attivo",query:""};
 const $=s=>document.querySelector(s),viewEl=$("#view"),titleEl=$("#pageTitle"),toastEl=$("#toast");
 const backend=()=>localStorage.getItem("parkour_admin_endpoint")||CONFIG.DEFAULT_API;
 const token=()=>localStorage.getItem("parkour_admin_token")||"";
+const ADMIN_SNAPSHOT_KEY="parkour_admin_snapshot_v2";
+function readAdminSnapshot(){try{return JSON.parse(localStorage.getItem(ADMIN_SNAPSHOT_KEY)||"null")}catch(_){return null}}
+function saveAdminSnapshot(data){try{localStorage.setItem(ADMIN_SNAPSHOT_KEY,JSON.stringify(data))}catch(_){}}
 (function resetMemberCachesOnce(){
   try{
     const key="parkour_member_reset_20260920_v1";
@@ -126,10 +129,19 @@ function defaultLessonDate(){
   const start=new Date(state.monthYear,state.monthIndex,1);
   const end=new Date(state.monthYear,state.monthIndex+1,0);
   const today=new Date();today.setHours(0,0,0,0);
-  for(let d=new Date(start);d<=end;d.setDate(d.getDate()+1)){const x=new Date(d);if(courseDay(x)&&x>=today)return dateKey(x)}
-  for(let d=new Date(start);d<=end;d.setDate(d.getDate()+1)){const x=new Date(d);if(courseDay(x))return dateKey(x)}
+  const seasonStart=new Date(CONFIG.SEASON_START+"T12:00:00"),seasonEnd=new Date(CONFIG.SEASON_END+"T12:00:00");
+  for(let d=new Date(start);d<=end;d.setDate(d.getDate()+1)){const x=new Date(d),key=dateKey(x);if(courseDay(x)&&x>=today&&key>=CONFIG.SEASON_START&&key<=CONFIG.SEASON_END)return key}
+  for(let d=new Date(start);d<=end;d.setDate(d.getDate()+1)){const x=new Date(d),key=dateKey(x);if(courseDay(x)&&key>=CONFIG.SEASON_START&&key<=CONFIG.SEASON_END)return key}
+  const realNow=new Date();
+  if(state.monthYear===realNow.getFullYear()&&state.monthIndex===realNow.getMonth()){
+    const next=new Date(Math.max(today.getTime(),seasonStart.getTime()));
+    for(let i=0;i<21&&next<=seasonEnd;i++,next.setDate(next.getDate()+1)){
+      if(courseDay(next)){state.monthYear=next.getFullYear();state.monthIndex=next.getMonth();return dateKey(next)}
+    }
+  }
   return null;
 }
+function nextRsvpDate(){return [...new Set((state.portal?.rsvps||[]).map(x=>x.date).filter(x=>x>=todayKey()))].sort()[0]||""}
 function trialsFor(key){return (state.trials||[]).filter(t=>t.date===key&&t.status!=="Annullato")}
 function calendarHtml(){
   const first=new Date(state.monthYear,state.monthIndex,1);
@@ -319,13 +331,23 @@ function renderDashboard(){
   const finance=[["Incasso stagione",d.revenue!=null?money(d.revenue):"—","Totale registrato","total"],["Incasso mese corrente",d.currentMonthRevenue!=null?money(d.currentMonthRevenue):"—",""],["Media mensile",d.averageMonthlyRevenue!=null?money(d.averageMonthlyRevenue):"—","Totale ÷ 9 mesi"],["Netto stimato",d.netRevenue!=null?money(d.netRevenue):"—","67% del totale"],["Tasse stimate",d.taxRevenue!=null?money(d.taxRevenue):"—","33% del totale"]];
   const cards=items=>items.map(x=>'<div class="kpi dashboard-kpi '+(x[3]==="total"?'dashboard-total':'')+'"><strong>'+x[1]+'</strong><span>'+x[0]+'</span>'+(x[2]?'<small>'+x[2]+'</small>':'')+'</div>').join("");
   const automation=state.portal?.automationActive?'<div class="automation-status active"><strong>Automazioni area iscritti attive</strong><span>Email presenza alle 09:00, promemoria alle 16:00 e avvisi pagamento.</span></div>':'<div class="automation-status"><strong>Automazioni non ancora attive</strong><span>Attivale una volta per programmare email e promemoria.</span><button class="primary" onclick="activatePortalAutomation()">ATTIVA AUTOMAZIONI</button></div>';
-  viewEl.innerHTML='<section class="dashboard-section"><div class="section-head"><h2>Corso</h2></div><div class="dashboard-grid">'+cards(course)+'</div></section><section class="dashboard-section"><div class="section-head"><h2>Economia</h2></div><div class="dashboard-grid dashboard-finance">'+cards(finance)+'</div></section><section class="dashboard-section"><div class="section-head"><h2>Area iscritti</h2></div>'+automation+'</section><div class="actions"><button class="secondary" onclick="disconnectBackend()">DISCONNETTI QUESTO DISPOSITIVO</button></div>';
+  const nextDate=nextRsvpDate(),confirmations=nextDate?'<section class="dashboard-section"><div class="section-head"><div><h2>Conferme prossima lezione</h2><small>'+esc(fmtDate(nextDate))+'</small></div></div>'+rsvpAdminSummary(nextDate)+'</section>':'';
+  viewEl.innerHTML=confirmations+'<section class="dashboard-section"><div class="section-head"><h2>Corso</h2></div><div class="dashboard-grid">'+cards(course)+'</div></section><section class="dashboard-section"><div class="section-head"><h2>Economia</h2></div><div class="dashboard-grid dashboard-finance">'+cards(finance)+'</div></section><section class="dashboard-section"><div class="section-head"><h2>Area iscritti</h2></div>'+automation+'</section><div class="actions"><button class="secondary" onclick="disconnectBackend()">DISCONNETTI QUESTO DISPOSITIVO</button></div>';
 }
 async function activatePortalAutomation(){
   showConfirm({eyebrow:"AUTOMAZIONI",title:"Attiva notifiche email",message:"Verrà creato un controllo orario che invia le richieste di conferma nei giorni di corso e i promemoria delle scadenze.",confirmLabel:"ATTIVA",onConfirm:async()=>{try{await api("installPortalAutomation");toast("Automazioni attivate");await loadAll()}catch(e){showError(e.message,"Automazioni non attivate")}}});
 }
 function filterCards(q,cls){q=q.toLowerCase();document.querySelectorAll("."+cls).forEach(el=>el.style.display=(el.dataset.search||"").includes(q)?"":"none")}
-async function loadAll(){viewEl.innerHTML='<div class="skeleton"></div>';try{if(backend()&&token())Object.assign(state,await api("bootstrap"))}catch(e){showError(e.message,"Dati non caricati")}render()}
+async function loadAll(){
+  if(!backend()||!token()){render();return}
+  let hasData=!!state.meta||(state.members||[]).length>0;
+  if(!hasData){const cached=readAdminSnapshot();if(cached){Object.assign(state,cached);hasData=true;render()}}
+  if(!hasData)viewEl.innerHTML='<div class="skeleton"></div>';
+  const syncBtn=$("#syncBtn");if(syncBtn)syncBtn.disabled=true;
+  try{const fresh=await api("bootstrap");Object.assign(state,fresh);saveAdminSnapshot(fresh)}catch(e){showError(e.message,"Dati non caricati")}
+  finally{if(syncBtn)syncBtn.disabled=false}
+  render();
+}
 function render(){document.querySelectorAll(".nav-item").forEach(b=>b.classList.toggle("active",b.dataset.view===state.view));({home:renderHome,trials:renderTrials,members:renderMembers,payments:renderPayments,didactics:renderDidactics,dashboard:renderDashboard}[state.view])()}
 document.querySelectorAll(".nav-item").forEach(b=>b.addEventListener("click",()=>{state.view=b.dataset.view;render()}));$("#syncBtn").addEventListener("click",loadAll);
 

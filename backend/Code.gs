@@ -19,21 +19,26 @@ const ADMIN = {
 };
 
 function doGet() {
-  return json_({ ok: true, service: 'Parkour Course OS API', version: '1.6.0' });
+  return json_({ ok: true, service: 'Parkour Course OS API', version: '1.6.1' });
 }
 
 function doPost(e) {
   const lock = LockService.getScriptLock();
+  let locked = false;
   try {
     if (typeof isJotformWebhookRequest_ === 'function' && isJotformWebhookRequest_(e)) {
       lock.waitLock(10000);
+      locked = true;
       return json_(handleJotformWebhook_(e));
     }
 
     const p = JSON.parse((e && e.postData && e.postData.contents) || '{}');
     const action = clean_(p.action);
     const data = p.data || {};
-    lock.waitLock(10000);
+    if (actionNeedsLock_(action)) {
+      lock.waitLock(10000);
+      locked = true;
+    }
 
     if (isMemberPortalAction_(action)) return json_(dispatchMemberPortalAction_(action, data));
 
@@ -61,8 +66,17 @@ function doPost(e) {
   } catch (err) {
     return json_({ ok: false, error: safeError_(err) });
   } finally {
-    try { lock.releaseLock(); } catch (_) {}
+    if (locked) try { lock.releaseLock(); } catch (_) {}
   }
+}
+
+function actionNeedsLock_(action) {
+  return [
+    'memberRequestLink','memberRegisterPush','memberUnregisterPush','memberLogout',
+    'togglePresence','setPresence','closeLesson','convertTrial','setTrialStatus','recordPayment',
+    'archiveMember','setMemberStatus','updateMember','walkIn','saveLessonDidactics','updateDeadline',
+    'uploadMemberDocument','deleteMemberDocument','sendMemberAccessLink','installPortalAutomation'
+  ].indexOf(action) >= 0;
 }
 
 function authorize_(token) {
@@ -71,17 +85,18 @@ function authorize_(token) {
 }
 
 function bootstrap_() {
-  ensureLessonDidacticsSchema_();
-  ensureIds_();
-  ensureMemberPortalSchema_();
-  ensureAllMemberDeadlines_();
+  ensureMemberPortalSchemaOnce_();
+  const trials = trialList_();
+  const members = memberList_();
+  const payments = paymentList_();
+  const lessons = lessonList_();
   return {
-    today: todayPayload_(),
-    trials: trialList_(),
-    members: memberList_(),
-    payments: paymentList_(),
-    lessons: lessonList_(),
-    dashboard: dashboard_(),
+    today: todayPayload_(members, trials),
+    trials: trials,
+    members: members,
+    payments: payments,
+    lessons: lessons,
+    dashboard: dashboard_(members, trials),
     portal: portalAdminData_(),
     meta: {
       generatedAt: new Date().toISOString(),
@@ -90,15 +105,15 @@ function bootstrap_() {
   };
 }
 
-function todayPayload_() {
+function todayPayload_(memberRows, trialRows) {
   const key = Utilities.formatDate(new Date(), ADMIN.timezone, 'yyyy-MM-dd');
   const day = new Date().getDay();
   const isCourseDay = day === 2 || day === 4;
   if (!isCourseDay) return null;
 
   const lesson = ensureLesson_(key);
-  const members = memberList_().filter(m => m.status === 'Attivo');
-  const trials = trialList_().filter(t => t.date === key && !['Annullato','Non interessato'].includes(t.status));
+  const members = (memberRows || memberList_()).filter(m => m.status === 'Attivo');
+  const trials = (trialRows || trialList_()).filter(t => t.date === key && !['Annullato','Non interessato'].includes(t.status));
 
   const att = attendanceMap_(key);
   members.forEach(m => m.present = att[m.id] === 'Sì');
@@ -190,9 +205,9 @@ function lessonList_() {
   })).filter(x => x.date).sort((a,b) => String(b.date).localeCompare(String(a.date)));
 }
 
-function dashboard_() {
-  const members = memberList_();
-  const trials = trialList_();
+function dashboard_(memberRows, trialRows) {
+  const members = memberRows || memberList_();
+  const trials = trialRows || trialList_();
   const payments = paymentListAll_();
   const active = members.filter(x => x.status === 'Attivo');
   const activeMembers = active.length;

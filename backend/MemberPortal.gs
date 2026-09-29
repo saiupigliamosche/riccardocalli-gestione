@@ -9,6 +9,8 @@ const MEMBER_PORTAL = {
   installmentDates: ['2026-10-01','2027-01-01','2027-04-01']
 };
 
+const MEMBER_PORTAL_SCHEMA_VERSION = '2026-09-29-r2';
+
 const MEMBER_PORTAL_HEADERS = {
   deadlines: ['Scadenza ID','Persona ID','Nome e cognome','Tipo','Numero rata','Importo','Data scadenza','Stato','Pagamento ID','Data pagamento','Promemoria -7','Promemoria giorno','Sollecito','Note','Ultimo aggiornamento'],
   documents: ['Documento ID','Persona ID','Nome e cognome','Tipo','Titolo','File ID','Nome file','MIME type','Dimensione','Data caricamento','Visibile iscritto','Caricato da','Note'],
@@ -22,7 +24,7 @@ function isMemberPortalAction_(action) {
 }
 
 function dispatchMemberPortalAction_(action, data) {
-  ensureMemberPortalSchema_();
+  ensureMemberPortalSchemaOnce_();
   if (action === 'memberRequestLink') return memberRequestLink_(data);
   if (action === 'memberLogin') return memberLogin_(data);
   if (action === 'memberBootstrap') return memberBootstrap_(data);
@@ -33,6 +35,13 @@ function dispatchMemberPortalAction_(action, data) {
   if (action === 'memberUnregisterPush') return memberUnregisterPush_(data);
   if (action === 'memberLogout') return memberLogout_(data);
   throw new Error('Azione area iscritti non valida.');
+}
+
+function ensureMemberPortalSchemaOnce_() {
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty('MEMBER_PORTAL_SCHEMA_VERSION') === MEMBER_PORTAL_SCHEMA_VERSION) return;
+  ensureMemberPortalSchema_();
+  props.setProperty('MEMBER_PORTAL_SCHEMA_VERSION', MEMBER_PORTAL_SCHEMA_VERSION);
 }
 
 function ensureMemberPortalSchema_() {
@@ -107,20 +116,30 @@ function memberBootstrap_(data) {
 function memberLogout_(data) {
   const auth = authorizeMemberSession_(data.sessionToken);
   markAccess_(auth.row, {'Revocato': new Date()});
+  CacheService.getScriptCache().remove('member-session-' + auth.tokenHash);
   return { ok: true };
 }
 
 function memberPortalPayload_(member) {
-  ensureMemberDeadlines_(member);
+  let deadlines = deadlineList_().filter(function(x) { return x.personId === member.id; });
+  if (!deadlines.length) {
+    ensureMemberDeadlines_(member);
+    deadlines = deadlineList_().filter(function(x) { return x.personId === member.id; });
+  }
   const nextDate = nextScheduledLessonForMember_(member, new Date());
   let rsvp = null;
   if (nextDate) {
-    ensureRsvpsForDate_(nextDate);
-    rsvp = rsvpList_().find(function(x) { return x.personId === member.id && x.date === nextDate; }) || null;
+    let rsvps = rsvpList_();
+    rsvp = rsvps.find(function(x) { return x.personId === member.id && x.date === nextDate; }) || null;
+    if (!rsvp) {
+      ensureRsvpsForDate_(nextDate);
+      rsvps = rsvpList_();
+      rsvp = rsvps.find(function(x) { return x.personId === member.id && x.date === nextDate; }) || null;
+    }
   }
   return {
     member: { id: member.id, name: member.name, email: member.email, plan: member.plan, frequency: member.frequency, status: member.status },
-    deadlines: deadlineList_().filter(function(x) { return x.personId === member.id; }),
+    deadlines: deadlines,
     payments: memberPaymentList_(member.id),
     documents: documentList_().filter(function(x) { return x.personId === member.id && x.visible; }),
     rsvp: rsvp,
@@ -132,12 +151,28 @@ function memberPortalPayload_(member) {
 function authorizeMemberSession_(rawToken) {
   const token = clean_(rawToken);
   if (!token) throw new Error('Sessione scaduta. Accedi di nuovo.');
-  const access = findAccessByHash_(tokenHash_(token), 'Sessione');
+  const hash = tokenHash_(token), cache = CacheService.getScriptCache(), cacheKey = 'member-session-' + hash;
+  let access = null;
+  try {
+    const cached = cache.get(cacheKey);
+    if (cached) {
+      access = JSON.parse(cached);
+      access.expiresAt = new Date(access.expiresAt);
+    }
+  } catch (_) { access = null; }
+  if (!access) {
+    access = findAccessByHash_(hash, 'Sessione');
+    if (access && !access.revoked) cache.put(cacheKey, JSON.stringify({row:access.row,personId:access.personId,email:access.email,used:access.used,revoked:false,expiresAt:access.expiresAt.toISOString()}), 21600);
+  }
   if (!access || access.revoked || access.expiresAt.getTime() < Date.now()) throw new Error('Sessione scaduta. Accedi di nuovo.');
   const member = memberForAccess_(access);
   if (!member || member.status !== 'Attivo') throw new Error('Area personale non disponibile.');
-  markAccess_(access.row, {'Ultimo accesso': new Date()});
-  return { member: member, row: access.row };
+  const touchKey = 'member-touch-' + hash;
+  if (!cache.get(touchKey)) {
+    markAccess_(access.row, {'Ultimo accesso': new Date()});
+    cache.put(touchKey, '1', 21600);
+  }
+  return { member: member, row: access.row, tokenHash: hash };
 }
 
 function findAccessByHash_(hash, type) {
@@ -537,24 +572,44 @@ function sanitizeFileName_(name) {
 }
 
 function ensureUpcomingRsvps_(count) {
-  let d = new Date(), made = 0;
+  let d = new Date(), made = 0, keys = [];
   d.setHours(12,0,0,0);
   if (Utilities.formatDate(d,ADMIN.timezone,'yyyy-MM-dd') < MEMBER_PORTAL.seasonStart) d = parseKey_(MEMBER_PORTAL.seasonStart);
   while (made < count && Utilities.formatDate(d,ADMIN.timezone,'yyyy-MM-dd') <= MEMBER_PORTAL.seasonEnd) {
-    if (isCourseDay_(d)) { ensureRsvpsForDate_(Utilities.formatDate(d,ADMIN.timezone,'yyyy-MM-dd')); made++; }
+    if (isCourseDay_(d)) { keys.push(Utilities.formatDate(d,ADMIN.timezone,'yyyy-MM-dd')); made++; }
     d.setDate(d.getDate()+1);
   }
+  ensureRsvpsForDates_(keys);
 }
 
 function ensureRsvpsForDate_(key) {
-  if (!isSeasonLessonKey_(key) || !isCourseDay_(parseKey_(key))) return;
-  const sh = sheet_(ADMIN.sheets.rsvps), existing = {};
-  table_(sh).forEach(function(r) { if (dateKey_(r['Data lezione']) === key) existing[str_(r['Persona ID'])] = true; });
-  const lesson = ensureLesson_(key);
-  memberList_().filter(function(m) { return m.status === 'Attivo' && scheduledForMember_(m,key); }).forEach(function(m) {
-    if (existing[m.id]) return;
-    appendByHeaders_(sh, {'Conferma ID':id_('RSV'),'Lezione ID':lesson.id,'Data lezione':parseKey_(key),'Persona ID':m.id,'Nome e cognome':m.name,'Previsto':'Sì','Risposta':'In attesa','Ultimo aggiornamento':new Date()});
-  });
+  ensureRsvpsForDates_([key]);
+}
+
+function ensureRsvpsForDates_(dateKeys) {
+  const keys = dateKeys.filter(function(key) { return isSeasonLessonKey_(key) && isCourseDay_(parseKey_(key)); });
+  if (!keys.length) return;
+  const lock = LockService.getScriptLock();
+  lock.waitLock(5000);
+  try {
+    const sh = sheet_(ADMIN.sheets.rsvps), h = headers_(sh), values = sh.getDataRange().getValues(), existing = {};
+    values.slice(1).forEach(function(row) {
+      const r = rowObj_(h,row), key = dateKey_(r['Data lezione']);
+      if (keys.indexOf(key) >= 0) existing[key + '|' + str_(r['Persona ID'])] = true;
+    });
+    const members = memberList_().filter(function(m) { return m.status === 'Attivo'; }), additions = [], now = new Date();
+    keys.forEach(function(key) {
+      members.filter(function(m) { return scheduledForMember_(m,key); }).forEach(function(m) {
+        if (existing[key + '|' + m.id]) return;
+        const record = {'Conferma ID':id_('RSV'),'Lezione ID':lessonId_(key),'Data lezione':parseKey_(key),'Persona ID':m.id,'Nome e cognome':m.name,'Previsto':'Sì','Risposta':'In attesa','Ultimo aggiornamento':now};
+        additions.push(h.map(function(header) { return Object.prototype.hasOwnProperty.call(record,header) ? record[header] : ''; }));
+        existing[key + '|' + m.id] = true;
+      });
+    });
+    if (additions.length) sh.getRange(sh.getLastRow()+1,1,additions.length,h.length).setValues(additions);
+  } finally {
+    try { lock.releaseLock(); } catch (_) {}
+  }
 }
 
 function rsvpList_() {
@@ -572,18 +627,30 @@ function memberSetRsvp_(data) {
   if (!scheduledForMember_(auth.member,key)) throw new Error('Questa lezione non è prevista dal tuo abbonamento.');
   const today = Utilities.formatDate(new Date(),ADMIN.timezone,'yyyy-MM-dd'), hour = num_(Utilities.formatDate(new Date(),ADMIN.timezone,'H'));
   if (key < today || (key === today && hour >= 19)) throw new Error('Le conferme per questa lezione sono chiuse.');
-  ensureRsvpsForDate_(key);
-  const sh = sheet_(ADMIN.sheets.rsvps), h = headers_(sh), rows = sh.getDataRange().getValues();
-  for (let i=1;i<rows.length;i++) {
-    const r = rowObj_(h,rows[i]);
-    if (dateKey_(r['Data lezione']) === key && str_(r['Persona ID']) === auth.member.id) {
-      setCellByHeader_(sh,i+1,h,'Risposta',response);
-      setCellByHeader_(sh,i+1,h,'Data risposta',new Date());
-      setCellByHeader_(sh,i+1,h,'Ultimo aggiornamento',new Date());
-      return { ok:true, data:{ response:response } };
-    }
+  const sh = sheet_(ADMIN.sheets.rsvps), h = headers_(sh);
+  let rows = sh.getDataRange().getValues(), rowIndex = findRsvpRowIndex_(rows,h,key,auth.member.id);
+  if (rowIndex < 1) {
+    ensureRsvpsForDate_(key);
+    rows = sh.getDataRange().getValues();
+    rowIndex = findRsvpRowIndex_(rows,h,key,auth.member.id);
+  }
+  if (rowIndex >= 1) {
+    const next = rows[rowIndex].slice(), now = new Date();
+    next[h.indexOf('Risposta')] = response;
+    next[h.indexOf('Data risposta')] = now;
+    next[h.indexOf('Ultimo aggiornamento')] = now;
+    sh.getRange(rowIndex+1,1,1,h.length).setValues([next]);
+    return { ok:true, data:{ response:response, updatedAt:now.toISOString() } };
   }
   throw new Error('Conferma lezione non trovata.');
+}
+
+function findRsvpRowIndex_(rows, headers, key, personId) {
+  for (let i=1;i<rows.length;i++) {
+    const r = rowObj_(headers,rows[i]);
+    if (dateKey_(r['Data lezione']) === key && str_(r['Persona ID']) === personId) return i;
+  }
+  return -1;
 }
 
 function scheduledForMember_(member, key) {

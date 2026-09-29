@@ -1,8 +1,8 @@
-const CACHE="parkour-iscritti-v3";
-const ASSETS=["./","./index.html","./styles.css","./push.css","./app.js","./manifest.json"];
+const CACHE="parkour-iscritti-v4";
+const ASSETS=["./","./index.html","./styles.css?v=1.2.0","./push.css?v=1.2.0","./app.js?v=1.2.0","./manifest.json"];
 self.addEventListener("install",e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS))));
 self.addEventListener("activate",e=>e.waitUntil(Promise.all([self.clients.claim(),caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith("parkour-iscritti-")&&k!==CACHE).map(k=>caches.delete(k))))])));
-self.addEventListener("fetch",e=>{if(e.request.method!=="GET")return;e.respondWith(fetch(e.request).then(r=>{const copy=r.clone();caches.open(CACHE).then(c=>c.put(e.request,copy));return r}).catch(()=>caches.match(e.request)))})
+self.addEventListener("fetch",e=>{if(e.request.method!=="GET")return;const update=fetch(e.request).then(r=>{const copy=r.clone();caches.open(CACHE).then(c=>c.put(e.request,copy));return r});e.respondWith(caches.match(e.request).then(cached=>cached||update).catch(()=>update))})
 self.addEventListener("push",event=>{
   let payload={};
   try{payload=event.data?event.data.json():{}}catch(_){payload={body:event.data?event.data.text():""}}
