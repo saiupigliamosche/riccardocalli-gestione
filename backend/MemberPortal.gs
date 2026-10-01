@@ -793,12 +793,7 @@ function sendRsvpNotifications_(key, hour) {
     if (r[flag]) continue;
     const member = findMember_(str_(r['Persona ID']),true);
     if (!member) continue;
-    const intro = hour === 9 ? 'Oggi c’è lezione. Ci sarai?' : 'Non hai ancora confermato la presenza alla lezione di oggi.';
-    if (normalizeEmail_(member.email)) {
-      const link = createMagicLink_(member,hour === 9 ? 'Conferma lezione' : 'Promemoria conferma');
-      const body = '<p>Ciao '+html_(member.name)+',</p><p>'+intro+'</p>'+emailButton_(link,'CONFERMA SÌ O NO')+'<p style="color:#66736f;font-size:13px">Puoi modificare la risposta fino alle 19:00.</p>';
-      MailApp.sendEmail({to:member.email,subject:(hour===9?'Conferma presenza':'Promemoria presenza')+' · lezione di oggi',htmlBody:emailLayout_('Lezione di oggi',body),name:'Corso Parkour Padova'});
-    }
+    // Presenze: solo notifiche web app/push, nessuna email di fallback.
     sendMemberPush_(member.id,{
       title:hour === 9 ? 'Conferma la lezione di oggi' : 'Conferma ancora in attesa',
       body:hour === 9 ? 'Lezione 19:00–20:30. Tocca per rispondere Sì o No.' : 'La lezione inizia alle 19:00. Tocca per confermare.',
@@ -820,11 +815,7 @@ function sendPaymentReminders_(todayKey) {
     if (!flag || r[flag]) continue;
     const member = findMember_(str_(r['Persona ID']),true); if (!member) continue;
     const amount = num_(r['Importo']).toFixed(2).replace('.',',');
-    if (normalizeEmail_(member.email)) {
-      const link = createMagicLink_(member,'Promemoria pagamento');
-      const body = '<p>Ciao '+html_(member.name)+',</p><p>promemoria per il pagamento di <strong>€ '+amount+'</strong>, con scadenza '+html_(due)+'.</p>'+emailButton_(link,'VEDI PAGAMENTI')+'<p style="color:#66736f;font-size:13px">Se hai già pagato, ignora questo messaggio: l’amministratore aggiornerà lo stato.</p>';
-      MailApp.sendEmail({to:member.email,subject:'Promemoria pagamento · Corso Parkour Padova',htmlBody:emailLayout_('Scadenza pagamento',body),name:'Corso Parkour Padova'});
-    }
+    // Pagamenti: solo notifiche web app/push, nessuna email di fallback.
     sendMemberPush_(member.id,{
       title:delta < 0 ? 'Pagamento scaduto' : 'Pagamento in scadenza',
       body:'Importo € '+amount+' · scadenza '+due+'. Tocca per vedere i dettagli.',
