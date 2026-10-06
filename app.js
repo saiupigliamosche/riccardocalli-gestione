@@ -923,5 +923,5 @@ function restoreMember(id){
   });
 }
 
-if("serviceWorker"in navigator)window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js?v=0.11.0").catch(()=>{}));
+if("serviceWorker"in navigator)window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js?v=0.11.1").catch(()=>{}));
 loadAll();
