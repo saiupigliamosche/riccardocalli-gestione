@@ -14,12 +14,22 @@ const ADMIN = {
     documents: 'Documenti',
     rsvps: 'Conferme lezioni',
     memberAccess: 'Accessi iscritti',
-    pushSubscriptions: 'Notifiche push'
+    pushSubscriptions: 'Notifiche push',
+    finance: 'Fiscalità pagamenti'
   }
 };
 
+const FINANCE = {
+  headers: ['Pagamento ID','Persona ID','Nome e cognome','Data pagamento','Importo lordo','Metodo','Classificazione incasso','Stato fattura','Numero fattura','Data fattura','Stato tasse','Importo tasse','Data trasferimento tasse','Conto destinazione tasse','Note','Ultimo aggiornamento'],
+  classifications: ['Da classificare','Incasso professionale','Incasso non professionale','Da verificare'],
+  invoiceStatuses: ['Da decidere','Da emettere','Emessa','Nessuna fattura prevista'],
+  taxStatuses: ['Da spostare','Spostate','Non previste'],
+  taxableBaseRate: 0.78,
+  taxRate: 0.31
+};
+
 function doGet() {
-  return json_({ ok: true, service: 'Parkour Course OS API', version: '1.6.4' });
+  return json_({ ok: true, service: 'Parkour Course OS API', version: '1.7.0' });
 }
 
 function doPost(e) {
@@ -61,6 +71,7 @@ function doPost(e) {
     if (action === 'deleteMemberDocument') return json_(deleteMemberDocument_(data));
     if (action === 'sendMemberAccessLink') return json_(sendMemberAccessLink_(data));
     if (action === 'installPortalAutomation') return json_(installMemberPortalAutomation_());
+    if (action === 'updateFinance') return json_(updateFinance_(data));
 
     return json_({ ok: false, error: 'Azione non valida.' });
   } catch (err) {
@@ -75,7 +86,7 @@ function actionNeedsLock_(action) {
     'memberRequestLink','memberRegisterPush','memberUnregisterPush','memberLogout',
     'togglePresence','setPresence','closeLesson','convertTrial','setTrialStatus','recordPayment',
     'archiveMember','setMemberStatus','updateMember','walkIn','saveLessonDidactics','updateDeadline',
-    'uploadMemberDocument','deleteMemberDocument','sendMemberAccessLink','installPortalAutomation'
+    'uploadMemberDocument','deleteMemberDocument','sendMemberAccessLink','installPortalAutomation','updateFinance'
   ].indexOf(action) >= 0;
 }
 
@@ -88,7 +99,10 @@ function bootstrap_() {
   ensureMemberPortalSchemaOnce_();
   const trials = trialList_();
   const members = memberList_();
-  const payments = paymentList_();
+  const paymentRows = paymentRows_();
+  ensureFinanceSchema_(paymentRows);
+  const payments = paymentList_(paymentRows);
+  const finance = financeList_();
   const lessons = lessonList_();
   return {
     today: todayPayload_(members, trials),
@@ -96,7 +110,9 @@ function bootstrap_() {
     members: members,
     payments: payments,
     lessons: lessons,
-    dashboard: dashboard_(members, trials),
+    finance: finance,
+    financeSummary: financeSummary_(finance),
+    dashboard: dashboard_(members, trials, paymentRows, finance),
     portal: portalAdminData_(members),
     meta: {
       generatedAt: new Date().toISOString(),
@@ -177,8 +193,8 @@ function memberList_() {
   })).filter(x => x.name);
 }
 
-function paymentList_() {
-  return table_(sheet_(ADMIN.sheets.payments)).map(r => ({
+function paymentList_(rows) {
+  return (rows || paymentRows_()).map(r => ({
     id: str_(r['Pagamento ID']),
     personId: str_(r['Persona ID']),
     name: str_(r['Nome e cognome']),
@@ -205,10 +221,12 @@ function lessonList_() {
   })).filter(x => x.date).sort((a,b) => String(b.date).localeCompare(String(a.date)));
 }
 
-function dashboard_(memberRows, trialRows) {
+function dashboard_(memberRows, trialRows, paymentRows, financeRows) {
   const members = memberRows || memberList_();
   const trials = trialRows || trialList_();
-  const payments = paymentListAll_();
+  const payments = paymentListAll_(paymentRows);
+  const finance = financeRows || financeList_();
+  const financeSummary = financeSummary_(finance);
   const active = members.filter(x => x.status === 'Attivo');
   const activeMembers = active.length;
   const membersTwiceWeekly = active.filter(x => /^2/.test(str_(x.frequency))).length;
@@ -226,8 +244,9 @@ function dashboard_(memberRows, trialRows) {
     revenue,
     currentMonthRevenue,
     averageMonthlyRevenue: revenue / 9,
-    netRevenue: revenue * 0.67,
-    taxRevenue: revenue * 0.33
+    netRevenue: revenue - (revenue * FINANCE.taxableBaseRate * FINANCE.taxRate),
+    taxRevenue: revenue * FINANCE.taxableBaseRate * FINANCE.taxRate,
+    finance: financeSummary
   };
 }
 
@@ -449,6 +468,164 @@ function recordPayment_(d) {
   return {ok:true,paymentId};
 }
 
+function updateFinance_(d) {
+  const paymentId = clean_(d.paymentId || d.id);
+  if (!paymentId) throw new Error('Pagamento non valido.');
+  ensureFinanceSchema_();
+  const sh = sheet_(ADMIN.sheets.finance), h = headers_(sh), rows = sh.getDataRange().getValues();
+  let rowNumber = 0, row = null;
+  const idCol = h.indexOf('Pagamento ID');
+  for (let i = 1; i < rows.length; i++) {
+    if (str_(rows[i][idCol]) === paymentId) {
+      rowNumber = i + 1;
+      row = rowObj_(h, rows[i]);
+      break;
+    }
+  }
+  if (!rowNumber) throw new Error('Riga fiscale non trovata.');
+
+  const classification = enumFinance_(d.classification, FINANCE.classifications, 'Classificazione incasso');
+  const invoiceStatus = enumFinance_(d.invoiceStatus, FINANCE.invoiceStatuses, 'Stato fattura');
+  const taxStatus = enumFinance_(d.taxStatus, FINANCE.taxStatuses, 'Stato tasse');
+  const invoiceDate = parseFinanceDate_(d.invoiceDate);
+  const transferDate = parseFinanceDate_(d.taxTransferDate);
+  const taxAmount = financeTaxAmount_(row['Importo lordo']);
+  const fields = {
+    'Classificazione incasso': classification,
+    'Stato fattura': invoiceStatus,
+    'Numero fattura': clean_(d.invoiceNumber),
+    'Data fattura': invoiceDate || '',
+    'Stato tasse': taxStatus,
+    'Importo tasse': taxAmount,
+    'Data trasferimento tasse': transferDate || (taxStatus === 'Spostate' ? new Date() : ''),
+    'Conto destinazione tasse': clean_(d.taxAccount),
+    'Note': clean_(d.note),
+    'Ultimo aggiornamento': new Date()
+  };
+  Object.keys(fields).forEach(function(name) { setCellByHeader_(sh, rowNumber, h, name, fields[name]); });
+  SpreadsheetApp.flush();
+  const finance = financeList_();
+  return {ok:true,paymentId,finance:finance.find(function(x) { return x.id === paymentId; }) || null,financeRows:finance,summary:financeSummary_(finance)};
+}
+
+function ensureFinanceSchema_(paymentRows) {
+  const ss = SpreadsheetApp.openById(ADMIN.spreadsheetId);
+  let sh = ss.getSheetByName(ADMIN.sheets.finance);
+  if (!sh) sh = ss.insertSheet(ADMIN.sheets.finance);
+  if (sh.getLastRow() === 0 || sh.getLastColumn() === 0) {
+    sh.getRange(1, 1, 1, FINANCE.headers.length).setValues([FINANCE.headers]);
+    sh.setFrozenRows(1);
+  } else {
+    const current = headers_(sh);
+    FINANCE.headers.forEach(function(header) {
+      if (current.indexOf(header) < 0) {
+        sh.getRange(1, sh.getLastColumn() + 1).setValue(header);
+        current.push(header);
+      }
+    });
+  }
+
+  const payments = paymentRows || paymentRows_();
+  const existing = {};
+  table_(sh).forEach(function(r) { const id = str_(r['Pagamento ID']); if (id) existing[id] = true; });
+  const missing = payments.filter(function(r) {
+    const id = str_(r['Pagamento ID']);
+    return id && str_(r['Nome e cognome']) && !existing[id];
+  });
+  if (!missing.length) return sh;
+
+  const h = headers_(sh);
+  const values = missing.map(function(r) {
+    const tax = financeTaxAmount_(r['Importo']);
+    const obj = {
+      'Pagamento ID': str_(r['Pagamento ID']),
+      'Persona ID': str_(r['Persona ID']),
+      'Nome e cognome': str_(r['Nome e cognome']),
+      'Data pagamento': r['Data'] || '',
+      'Importo lordo': num_(r['Importo']),
+      'Metodo': str_(r['Metodo']),
+      'Classificazione incasso': 'Da classificare',
+      'Stato fattura': 'Da decidere',
+      'Numero fattura': '',
+      'Data fattura': '',
+      'Stato tasse': 'Da spostare',
+      'Importo tasse': tax,
+      'Data trasferimento tasse': '',
+      'Conto destinazione tasse': '',
+      'Note': '',
+      'Ultimo aggiornamento': new Date()
+    };
+    return h.map(function(header) { return Object.prototype.hasOwnProperty.call(obj, header) ? obj[header] : ''; });
+  });
+  sh.getRange(sh.getLastRow() + 1, 1, values.length, h.length).setValues(values);
+  return sh;
+}
+
+function financeList_() {
+  return table_(sheet_(ADMIN.sheets.finance)).map(function(r) {
+    return {
+      id: str_(r['Pagamento ID']),
+      personId: str_(r['Persona ID']),
+      name: str_(r['Nome e cognome']),
+      date: dateIso_(r['Data pagamento']),
+      amount: num_(r['Importo lordo']),
+      method: str_(r['Metodo']),
+      classification: str_(r['Classificazione incasso']) || 'Da classificare',
+      invoiceStatus: str_(r['Stato fattura']) || 'Da decidere',
+      invoiceNumber: str_(r['Numero fattura']),
+      invoiceDate: dateKey_(r['Data fattura']),
+      taxStatus: str_(r['Stato tasse']) || 'Da spostare',
+      taxAmount: num_(r['Importo tasse']) || financeTaxAmount_(r['Importo lordo']),
+      taxTransferDate: dateKey_(r['Data trasferimento tasse']),
+      taxAccount: str_(r['Conto destinazione tasse']),
+      note: str_(r['Note']),
+      updatedAt: dateIso_(r['Ultimo aggiornamento'])
+    };
+  }).filter(function(x) { return x.id && x.name; }).sort(function(a,b) { return String(b.date).localeCompare(String(a.date)); });
+}
+
+function financeSummary_(rows) {
+  const list = rows || [];
+  const toClassify = list.filter(function(x) { return !x.classification || x.classification === 'Da classificare'; });
+  const invoiceDue = list.filter(function(x) { return x.invoiceStatus === 'Da emettere'; });
+  const taxesToMove = list.filter(function(x) { return x.taxStatus === 'Da spostare'; });
+  const completed = list.filter(function(x) {
+    return x.classification && x.classification !== 'Da classificare' &&
+      ['Emessa','Nessuna fattura prevista'].indexOf(x.invoiceStatus) >= 0 &&
+      ['Spostate','Non previste'].indexOf(x.taxStatus) >= 0;
+  });
+  return {
+    total: list.length,
+    toClassify: toClassify.length,
+    invoiceDue: invoiceDue.length,
+    taxesToMove: taxesToMove.length,
+    completed: completed.length,
+    gross: list.reduce(function(sum, x) { return sum + num_(x.amount); }, 0),
+    taxReserve: taxesToMove.reduce(function(sum, x) { return sum + num_(x.taxAmount); }, 0),
+    taxMoved: list.filter(function(x) { return x.taxStatus === 'Spostate'; }).reduce(function(sum, x) { return sum + num_(x.taxAmount); }, 0),
+    formula: 'Importo lordo × 78% × 31%',
+    rate: FINANCE.taxableBaseRate * FINANCE.taxRate
+  };
+}
+
+function financeTaxAmount_(gross) {
+  return num_(gross) * FINANCE.taxableBaseRate * FINANCE.taxRate;
+}
+
+function enumFinance_(value, allowed, label) {
+  const v = clean_(value);
+  if (allowed.indexOf(v) < 0) throw new Error(label + ' non valido.');
+  return v;
+}
+
+function parseFinanceDate_(value) {
+  const v = str_(value);
+  if (!v) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return parseKey_(v);
+  const d = new Date(v);
+  return isNaN(d) ? '' : d;
+}
+
 function setMemberStatus_(d) {
   const id=clean_(d.personId||d.id), status=clean_(d.status);
   if(!id||!status) throw new Error('Stato iscritto non valido.');
@@ -638,7 +815,8 @@ function updateTrialFields_(bookingId,fields){const sh=sheet_(ADMIN.sheets.trial
 function findTrial_(id){return trialList_().find(x=>x.id===id)||null;}
 function findTrialEntity_(id){return trialList_().find(x=>x.id===id||x.personId===id)||null;}
 function findMember_(id,quiet){const m=memberList_().find(x=>x.id===id)||null;if(!m&&!quiet)throw new Error('Iscritto non trovato.');return m;}
-function paymentListAll_(){return table_(sheet_(ADMIN.sheets.payments)).map(r=>({amount:num_(r['Importo']),month:monthKey_(r['Data'])}));}
+function paymentRows_(){return table_(sheet_(ADMIN.sheets.payments));}
+function paymentListAll_(rows){return (rows||paymentRows_()).map(function(r){return {amount:num_(r['Importo']),month:monthKey_(r['Data'])};});}
 
 function sheet_(name){const sh=SpreadsheetApp.openById(ADMIN.spreadsheetId).getSheetByName(name);if(!sh)throw new Error('Foglio mancante: '+name);return sh;}
 function headers_(sh){return sh.getRange(1,1,1,sh.getLastColumn()).getValues()[0].map(str_);}
