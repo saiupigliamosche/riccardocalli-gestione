@@ -176,10 +176,10 @@ function memberLogout_(data) {
 
 function memberPortalPayload_(member) {
   ensureEntryPassSchema_();
-  let deadlines = deadlineList_().filter(function(x) { return x.personId === member.id; });
+  let deadlines = deadlineList_().filter(function(x) { return x.personId === member.id && x.status !== 'Annullata'; });
   if (!deadlines.length) {
     ensureMemberDeadlines_(member);
-    deadlines = deadlineList_().filter(function(x) { return x.personId === member.id; });
+    deadlines = deadlineList_().filter(function(x) { return x.personId === member.id && x.status !== 'Annullata'; });
   }
   const nextDate = nextScheduledLessonForMember_(member, new Date());
   let rsvp = null;
@@ -404,7 +404,7 @@ function deadlineList_() {
   const today = Utilities.formatDate(new Date(), ADMIN.timezone, 'yyyy-MM-dd');
   return table_(sheet_(ADMIN.sheets.deadlines)).map(function(r) {
     const due = dateKey_(r['Data scadenza']), stored = str_(r['Stato']) || 'Da pagare';
-    const status = stored === 'Pagata' ? 'Pagata' : (due && due < today ? 'Scaduta' : 'Da pagare');
+    const status = stored === 'Pagata' ? 'Pagata' : (stored === 'Annullata' ? 'Annullata' : (due && due < today ? 'Scaduta' : 'Da pagare'));
     return { id: str_(r['Scadenza ID']), personId: str_(r['Persona ID']), name: str_(r['Nome e cognome']), type: str_(r['Tipo']), installment: num_(r['Numero rata']), amount: num_(r['Importo']), dueDate: due, status: status, paymentId: str_(r['Pagamento ID']), paidAt: dateIso_(r['Data pagamento']), note: str_(r['Note']) };
   }).filter(function(x) { return x.id && x.personId; }).sort(function(a,b) { return String(a.dueDate).localeCompare(String(b.dueDate)); });
 }
