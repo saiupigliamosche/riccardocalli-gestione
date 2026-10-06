@@ -310,13 +310,20 @@ function renderPayments(){
   if(!backend()||!token()){viewEl.innerHTML=connectionCard();return}
   const financeById={};(state.finance||[]).forEach(x=>financeById[x.id]=x);
   viewEl.innerHTML='<button class="primary" onclick="newPayment()">+ REGISTRA PAGAMENTO</button><section class="section"><div class="section-head"><h2>Ultimi pagamenti</h2><button class="secondary inline-action" onclick="state.view=\'finance\';render()">GESTISCI FINANZE</button></div>'+
-  (state.payments?.length?state.payments.map(x=>{const f=financeById[x.id];return '<div class="card payment-card"><div class="card-row"><div><div class="card-title">'+esc(x.name)+'</div><div class="card-sub">'+fmtDate(x.date)+' · '+esc(x.method||"")+'</div>'+(f?'<div class="payment-status-row"><span class="finance-chip '+financeStatusClass(f.classification)+'">'+esc(f.classification)+'</span><span class="finance-chip '+financeStatusClass(f.taxStatus)+'">Tasse: '+esc(f.taxStatus)+'</span>'+(f.invoiceDocumentId?'<span class="finance-chip ok">PDF fattura</span>':'')+'</div>':'')+'</div><strong>'+money(x.amount)+'</strong></div>'+(f?'<button class="secondary payment-finance-btn" onclick="financeEdit(\''+esc(f.id)+'\')">AGGIORNA STATO FISCALE</button>':'')+'</div>'}).join(""):'<div class="empty">Nessun pagamento registrato.</div>')+'</section>';
+  (state.payments?.length?state.payments.map(x=>{const f=financeById[x.id];return '<div class="card payment-card"><div class="card-row"><div><div class="card-title">'+esc(x.name)+'</div><div class="card-sub">'+fmtDate(x.date)+' · '+esc(x.method||"")+'</div>'+paymentReferenceHtml(x,f)+(f?'<div class="payment-status-row"><span class="finance-chip '+financeStatusClass(f.classification)+'">'+esc(f.classification)+'</span><span class="finance-chip '+financeStatusClass(f.taxStatus)+'">Tasse: '+esc(f.taxStatus)+'</span>'+(f.invoiceDocumentId?'<span class="finance-chip ok">PDF fattura</span>':'')+'</div>':'')+'</div><strong>'+money(x.amount)+'</strong></div>'+(f?'<button class="secondary payment-finance-btn" onclick="financeEdit(\''+esc(f.id)+'\')">AGGIORNA STATO FISCALE</button>':'')+'</div>'}).join(""):'<div class="empty">Nessun pagamento registrato.</div>')+'</section>';
 }
 function financeStatusClass(value){
   const v=String(value||"");
   if(["Spostate","Emessa","Nessuna fattura prevista","Non previste","Incasso professionale","Incasso non professionale"].includes(v))return"ok";
   if(["Da classificare","Da decidere","Da emettere","Da spostare","Da verificare"].includes(v))return"warning";
   return"neutral";
+}
+function paymentReferenceHtml(payment,finance){
+  const parts=[],type=String(payment?.type||"").trim(),installment=String(payment?.installment||"").trim(),invoiceNumber=String(finance?.invoiceNumber||"").trim();
+  if(type)parts.push(type);
+  if(installment)parts.push(installment);
+  if(invoiceNumber)parts.push("Fattura n. "+invoiceNumber);
+  return '<div class="payment-reference"><span>Corrisponde a</span><strong>'+esc(parts.length?parts.join(" · "):"Non indicato")+'</strong></div>';
 }
 function financeOptionList(values,selected){return values.map(v=>'<option value="'+esc(v)+'" '+(v===selected?'selected':'')+'>'+esc(v)+'</option>').join("")}
 function financeEdit(id){
@@ -363,10 +370,11 @@ function renderFinance(){
   if(!backend()||!token()){viewEl.innerHTML=connectionCard();return}
   const s=state.financeSummary||state.dashboard?.finance||{};
   const rows=state.finance||[];
+  const paymentById={};(state.payments||[]).forEach(x=>paymentById[x.id]=x);
   const card=(value,label,detail,kind)=>'<div class="kpi finance-kpi '+(kind||"")+'"><strong>'+value+'</strong><span>'+label+'</span>'+(detail?'<small>'+detail+'</small>':'')+'</div>';
   const cards='<div class="finance-kpi-grid">'+card(s.toClassify??0,"Da classificare","prima verifica",s.toClassify?"warning":"")+card(s.taxesToMove??0,"Tasse da spostare",s.taxReserve!=null?money(s.taxReserve):"",s.taxesToMove?"warning":"")+card(s.invoiceDue??0,"Fatture da fare","stato manuale",s.invoiceDue?"warning":"")+card(s.completed??0,"Completati","fattura e tasse chiuse","")+'</div>';
   const formula='<div class="finance-formula"><strong>Formula mantenuta</strong><span>Importo lordo × 78% × 31% = '+Math.round((s.rate||0.2418)*10000)/100+'% del lordo</span><small>Le classificazioni e gli obblighi di fattura restano sotto il tuo controllo.</small></div>';
-  const list=rows.length?rows.map(x=>'<article class="finance-card"><div class="finance-card-top"><div><strong>'+esc(x.name)+'</strong><small>'+fmtDate(x.date)+' · '+esc(x.method||"Metodo non indicato")+'</small></div><strong>'+money(x.amount)+'</strong></div><div class="finance-tags"><span class="finance-chip '+financeStatusClass(x.classification)+'">'+esc(x.classification)+'</span><span class="finance-chip '+financeStatusClass(x.invoiceStatus)+'">Fattura: '+esc(x.invoiceStatus)+'</span><span class="finance-chip '+financeStatusClass(x.taxStatus)+'">Tasse: '+esc(x.taxStatus)+'</span>'+(x.invoiceDocumentId?'<span class="finance-chip ok">PDF nell’area iscritto</span>':'')+'</div><div class="finance-card-foot"><span>Tasse stimate '+money(x.taxAmount)+'</span><button class="secondary" onclick="financeEdit(\''+esc(x.id)+'\')">GESTISCI</button></div></article>').join(""):'<div class="empty">Nessun pagamento da controllare.</div>';
+  const list=rows.length?rows.map(x=>'<article class="finance-card"><div class="finance-card-top"><div><strong>'+esc(x.name)+'</strong><small>'+fmtDate(x.date)+' · '+esc(x.method||"Metodo non indicato")+'</small>'+paymentReferenceHtml(paymentById[x.id]||x,x)+'</div><strong>'+money(x.amount)+'</strong></div><div class="finance-tags"><span class="finance-chip '+financeStatusClass(x.classification)+'">'+esc(x.classification)+'</span><span class="finance-chip '+financeStatusClass(x.invoiceStatus)+'">Fattura: '+esc(x.invoiceStatus)+'</span><span class="finance-chip '+financeStatusClass(x.taxStatus)+'">Tasse: '+esc(x.taxStatus)+'</span>'+(x.invoiceDocumentId?'<span class="finance-chip ok">PDF nell’area iscritto</span>':'')+'</div><div class="finance-card-foot"><span>Tasse stimate '+money(x.taxAmount)+'</span><button class="secondary" onclick="financeEdit(\''+esc(x.id)+'\')">GESTISCI</button></div></article>').join(""):'<div class="empty">Nessun pagamento da controllare.</div>';
   viewEl.innerHTML=formula+cards+'<section class="section"><div class="section-head"><h2>Pagamenti da controllare</h2><button class="secondary inline-action" onclick="newPayment()">+ PAGAMENTO</button></div>'+list+'</section>';
 }
 function lessonNoteCard(x){
@@ -738,7 +746,7 @@ function newPayment(personId){
   const options=members.map(m=>'<option value="'+esc(m.id)+'" '+(m.id===personId?'selected':'')+'>'+esc(m.name)+'</option>').join('');
   const body='<label class="field-label" for="paymentMember">Iscritto</label><select id="paymentMember" class="big-select" '+(personId?'':'autofocus')+'><option value="">Seleziona una persona</option>'+options+'</select>'+
     '<label class="field-label" for="paymentAmount">Importo in euro</label><input id="paymentAmount" class="big-input" type="number" min="1" step="0.01" inputmode="decimal" value="110" '+(personId?'autofocus':'')+'>'+
-    '<label class="field-label" for="paymentType">Tipo pagamento</label><input id="paymentType" class="big-input" value="Rata" placeholder="Es. Rata, Annuale, Mese di prova">'+
+    '<label class="field-label" for="paymentType">A cosa corrisponde</label><input id="paymentType" class="big-input" value="Rata" placeholder="Es. quota corso, rata, annuale">'+
     paymentChoiceGroup(["Contanti","Bonifico","PayPal","Altro"],"Contanti")+
     '<label class="field-label" for="paymentInstallment">Periodo / rata <span class="optional">opzionale</span></label><input id="paymentInstallment" class="big-input" placeholder="Es. Prima rata">';
   openModal({id:"paymentModal",eyebrow:"PAGAMENTO",title:"Registra pagamento",body,actions:'<button class="secondary" onclick="closeModal(\'paymentModal\')">ANNULLA</button><button class="primary payment-save" onclick="savePayment()">REGISTRA</button>'});

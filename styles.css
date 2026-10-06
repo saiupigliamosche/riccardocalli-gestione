@@ -99,6 +99,9 @@ h3{font-size:16px;margin:0}
 .card-sub{color:var(--muted);font-size:13px;margin-top:3px}
 .inline-action{width:auto;padding:9px 11px;border-radius:11px;font-size:10px;font-weight:900;white-space:nowrap}
 .payment-card{padding-bottom:12px}
+.payment-reference{display:flex;flex-wrap:wrap;align-items:baseline;gap:5px;margin-top:6px;font-size:11px;line-height:1.35}
+.payment-reference span{color:var(--muted);font-weight:700}
+.payment-reference strong{color:var(--brand);font-weight:900}
 .payment-status-row{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
 .payment-finance-btn{width:auto;margin-top:12px;padding:9px 11px;border-radius:11px;font-size:10px;font-weight:900}
 .finance-kpi-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin:14px 0 16px}
