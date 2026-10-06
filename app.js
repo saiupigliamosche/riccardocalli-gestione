@@ -1,9 +1,16 @@
 const CONFIG={VERSION:"0.15.2",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",ENROLLMENT_FORM:"https://form.jotform.com/262643062831050",SEASON_START:"2026-10-01",SEASON_END:"2027-06-09"};
-CONFIG.VERSION="0.17.0";
+CONFIG.VERSION="0.18.0";
 const FINANCE_DEFAULT="Fattura";
 const FINANCE_EXCEPTION="Eccezione";
 const ENTRY_PAYMENT_PRESETS={"Ingresso singolo":15,"Carnet 5 ingressi":60,"Carnet 10 ingressi":110};
 const MEMBER_PLAN_OPTIONS=[["Annuale","Annuale"],["3 rate","3 rate"],["Mese di prova","Mese di prova"],["Ingresso singolo","Ingresso singolo · 15 €"],["Carnet 5 ingressi","Carnet 5 ingressi · 60 €"],["Carnet 10 ingressi","Carnet 10 ingressi · 110 €"]];
+function isEntryMemberPlan(plan){return Object.prototype.hasOwnProperty.call(ENTRY_PAYMENT_PRESETS,String(plan||""))}
+function memberFrequencyValue(plan,frequency,day){if(isEntryMemberPlan(plan))return "";return frequency==="2"?"2x/settimana - Martedì+Giovedì":"1x/settimana - "+day}
+function setPlanScheduleVisibility(prefix,plan,frequency){
+  const hidden=isEntryMemberPlan(plan),frequencyGroup=document.querySelector("#"+prefix+"FrequencyGroup"),dayGroup=document.querySelector("#"+prefix+"DayGroup");
+  if(frequencyGroup)frequencyGroup.style.display=hidden?"none":"";
+  if(dayGroup)dayGroup.style.display=hidden?"none":(frequency==="1"?"block":"none");
+}
 const now=new Date();
 const state={view:"home",today:null,trials:[],members:[],payments:[],paymentSummary:null,finance:[],financeSummary:null,lessons:[],dashboard:null,portal:{deadlines:[],documents:[],rsvps:[]},monthYear:now.getFullYear(),monthIndex:now.getMonth(),selectedDate:null};
 const memberDirectory={filter:"Attivo",query:""};
@@ -245,6 +252,7 @@ function memberDisplayStatus(member){return isArchivedMember(member)?"Eliminato"
 function memberStatusClass(status){return status==="Eliminato"||status==="Uscito"?"danger":status==="Sospeso"||status==="In pausa"?"trial":"ok"}
 function memberPlanShort(p){
   const plan=String(p.plan||"").toLowerCase();
+  if(isEntryMemberPlan(p.plan))return String(p.plan);
   const freq=String(p.frequency||"").toLowerCase();
   const freqLabel=freq.includes("2")?"2×":freq.includes("giov")?"1× Gio":freq.includes("mart")?"1× Mar":"1×";
   let planLabel="Piano non impostato";
@@ -257,7 +265,7 @@ function memberRowHtml(p){
   const displayStatus=memberDisplayStatus(p);
   const search=[p.name,displayStatus,p.plan,p.frequency].filter(Boolean).join(" ").toLowerCase();
   const freq=String(p.frequency||"").toLowerCase();
-  const freqKey=freq.includes("2")?"2x":"1x";
+  const freqKey=isEntryMemberPlan(p.plan)?"entry":freq.includes("2")?"2x":"1x";
   const canSend=displayStatus==="Attivo"&&!!String(p.email||"").trim();
   const sendLabel=canSend?"INVIA LINK":displayStatus!=="Attivo"?"NON ATTIVO":"EMAIL MANCANTE";
   const sendTitle=canSend?"Invia il link di accesso all’app a "+p.name:displayStatus!=="Attivo"?"L’area personale è disponibile solo per gli iscritti attivi":"Aggiungi un’email valida per inviare il link";
@@ -271,8 +279,8 @@ function memberRowHtml(p){
 function memberFilterCounts(rows){return{
   all:rows.filter(x=>!isArchivedMember(x)).length,
   Attivo:rows.filter(x=>(x.status||"Attivo")==="Attivo").length,
-  "1x":rows.filter(x=>(x.status||"Attivo")==="Attivo"&&!String(x.frequency||"").toLowerCase().includes("2")).length,
-  "2x":rows.filter(x=>(x.status||"Attivo")==="Attivo"&&String(x.frequency||"").toLowerCase().includes("2")).length,
+  "1x":rows.filter(x=>(x.status||"Attivo")==="Attivo"&&!isEntryMemberPlan(x.plan)&&!String(x.frequency||"").toLowerCase().includes("2")).length,
+  "2x":rows.filter(x=>(x.status||"Attivo")==="Attivo"&&!isEntryMemberPlan(x.plan)&&String(x.frequency||"").toLowerCase().includes("2")).length,
   inactive:rows.filter(x=>!isArchivedMember(x)&&(isPausedMember(x)||x.status==="Uscito")).length,
   Eliminato:rows.filter(isArchivedMember).length
 }}
@@ -665,13 +673,14 @@ function convertTrial(id){
   const p=state.trials.find(x=>x.id===id);
   if(!p)return;
   trialDraft={id,frequency:"1",day:"Martedì",plan:"Annuale",payment:"No",method:"Contanti"};
-  const body=trialChoiceGroup("Frequenza","frequency",[["1","1× settimana"],["2","2× settimana"]],"1")+
+  const body='<div id="trialFrequencyGroup">'+trialChoiceGroup("Frequenza","frequency",[["1","1× settimana"],["2","2× settimana"]],"1")+'</div>'+
     '<div id="trialDayGroup">'+trialChoiceGroup("Giorno","day",[["Martedì","Martedì"],["Giovedì","Giovedì"]],"Martedì")+'</div>'+
     trialChoiceGroup("Pacchetto","plan",MEMBER_PLAN_OPTIONS,"Annuale")+
     trialChoiceGroup("Pagamento","payment",[["No","Non pagato"],["Sì","Pagato ora"]],"No")+
     '<div id="trialMethodGroup" style="display:none">'+trialChoiceGroup("Metodo","method",[["Contanti","Contanti"],["Bonifico","Bonifico"],["PayPal","PayPal"],["Altro","Altro"]],"Contanti")+'</div>'+
     '<div id="trialAmountNote" class="amount-note">Importo se pagato ora: '+money(trialAmount())+'</div>';
   openModal({id:"trialModal",eyebrow:"CONVERTI PROVA",title:esc(p.name),body,actions:'<button class="primary trial-save" onclick="saveTrialConversion()">SALVA ISCRIZIONE</button>'});
+  setPlanScheduleVisibility("trial",trialDraft.plan,trialDraft.frequency);
 }
 function trialChoiceGroup(label,group,items,selected){
   return '<div class="choice-section"><div class="field-label">'+label+'</div><div class="choice-grid">'+items.map(x=>'<button type="button" class="choice-btn '+(x[0]===selected?"selected":"")+'" data-trial-group="'+group+'" onclick="chooseTrialOption(\''+group+'\',\''+x[0]+'\',this)">'+x[1]+'</button>').join("")+'</div></div>';
@@ -686,6 +695,7 @@ function chooseTrialOption(group,value,btn){
     trialDraft.day=value==="1"?"Martedì":"Martedì+Giovedì";
   }
   if(group==="payment")document.querySelector("#trialMethodGroup").style.display=value==="Sì"?"block":"none";
+  if(group==="plan")setPlanScheduleVisibility("trial",trialDraft.plan,trialDraft.frequency);
   const n=document.querySelector("#trialAmountNote");if(n)n.textContent="Importo se pagato ora: "+money(trialAmount());
 }
 function trialAmount(){
@@ -699,7 +709,7 @@ function closeTrialModal(){closeModal("trialModal")}
 async function saveTrialConversion(){
   const btn=document.querySelector(".trial-save");
   btn.disabled=true;btn.textContent="SALVATAGGIO…";
-  const frequency=trialDraft.frequency==="2"?"2x/settimana - Martedì+Giovedì":"1x/settimana - "+trialDraft.day;
+  const frequency=memberFrequencyValue(trialDraft.plan,trialDraft.frequency,trialDraft.day);
   const payment=trialDraft.payment==="Sì"?{type:trialDraft.plan,amount:trialAmount(),method:trialDraft.method,invoiced:"No"}:null;
   try{
     await api("convertTrial",{bookingId:trialDraft.id,frequency,plan:trialDraft.plan,payment});
@@ -718,12 +728,13 @@ function newMember(){
   const ages=Array.from({length:63},(_,i)=>i+18).map(a=>'<option value="'+a+'">'+a+'</option>').join("");
   const body='<label class="field-label">Nome e cognome</label><input id="memberName" class="big-input" autocomplete="name" placeholder="Es. Mario Rossi" autofocus>'+
     '<label class="field-label">Età</label><select id="memberAge" class="big-select">'+ages+'</select>'+
-    choiceGroup("Frequenza","frequency",[["1","1× settimana"],["2","2× settimana"]],"2")+
+    '<div id="memberFrequencyGroup">'+choiceGroup("Frequenza","frequency",[["1","1× settimana"],["2","2× settimana"]],"2")+'</div>'+
     '<div id="memberDayGroup" style="display:none">'+choiceGroup("Giorno","day",[["Martedì","Martedì"],["Giovedì","Giovedì"]],"Martedì")+'</div>'+
     choiceGroup("Pacchetto","plan",MEMBER_PLAN_OPTIONS,"Annuale")+
     choiceGroup("Pagamento","payment",[["No","Non pagato"],["Sì","Pagato ora"]],"No")+
     '<div id="memberMethodGroup" style="display:none">'+choiceGroup("Metodo","method",[["Contanti","Contanti"],["Bonifico","Bonifico"],["PayPal","PayPal"],["Altro","Altro"]],"Contanti")+'</div>';
   openModal({id:"memberModal",eyebrow:"NUOVO ISCRITTO",title:"Aggiungi persona",body,actions:'<button class="primary modal-save" onclick="saveMember()">SALVA ISCRITTO</button>'});
+  setPlanScheduleVisibility("member",memberDraft.plan,memberDraft.frequency);
 }
 function choiceGroup(label,group,items,selected){
   return '<div class="choice-section"><div class="field-label">'+label+'</div><div class="choice-grid">'+items.map(x=>'<button type="button" class="choice-btn '+(x[0]===selected?"selected":"")+'" data-group="'+group+'" data-value="'+x[0]+'" onclick="chooseMemberOption(\''+group+'\',\''+x[0]+'\',this)">'+x[1]+'</button>').join("")+'</div></div>';
@@ -740,6 +751,7 @@ function chooseMemberOption(group,value,btn){
   if(group==="payment"){
     document.querySelector("#memberMethodGroup").style.display=value==="Sì"?"block":"none";
   }
+  if(group==="plan")setPlanScheduleVisibility("member",memberDraft.plan,memberDraft.frequency);
 }
 function closeMemberModal(){closeModal("memberModal")}
 function memberAmount(){
@@ -753,7 +765,7 @@ async function saveMember(){
   const name=document.querySelector("#memberName").value.trim();
   const age=Number(document.querySelector("#memberAge").value);
   if(!name){showError("Inserisci nome e cognome.","Dato mancante");return}
-  const frequency=memberDraft.frequency==="2"?"2x/settimana - Martedì+Giovedì":"1x/settimana - "+memberDraft.day;
+  const frequency=memberFrequencyValue(memberDraft.plan,memberDraft.frequency,memberDraft.day);
   const saveBtn=document.querySelector(".modal-save");
   saveBtn.disabled=true;saveBtn.textContent="SALVATAGGIO…";
   try{
@@ -813,11 +825,12 @@ function memberDetail(id){
   const deadlines=(state.portal?.deadlines||[]).filter(x=>x.personId===id&&x.status!=="Pagata"&&x.status!=="Annullata");
   const documents=(state.portal?.documents||[]).filter(x=>x.personId===id);
   const next=deadlines.slice().sort((a,b)=>String(a.dueDate).localeCompare(String(b.dueDate)))[0];
+  const frequencyDetail=isEntryMemberPlan(m.plan)?'':'<div class="detail-item"><span>Frequenza</span><strong>'+value(m.frequency)+'</strong></div>';
   const body='<div class="detail-grid">'+
       '<div class="detail-item"><span>Età</span><strong>'+value(m.age)+'</strong></div>'+
       '<div class="detail-item"><span>Stato</span><strong>'+value(memberDisplayStatus(m))+'</strong></div>'+
       '<div class="detail-item"><span>Pacchetto</span><strong>'+value(m.plan)+'</strong></div>'+
-      '<div class="detail-item"><span>Frequenza</span><strong>'+value(m.frequency)+'</strong></div>'+
+      frequencyDetail+
       '<div class="detail-item"><span>Ultima presenza</span><strong>'+(m.lastAttendance?esc(fmtDate(m.lastAttendance)):"—")+'</strong></div>'+
       '<div class="detail-item"><span>Rischio drop</span><strong>'+value(m.risk)+'</strong></div>'+
       '<div class="detail-item wide"><span>Telefono</span><strong>'+value(m.phone)+'</strong></div>'+
@@ -881,15 +894,16 @@ function editMember(id){
     '<label class="field-label">Età</label><input id="editAge" class="big-input" type="number" min="18" max="120" inputmode="numeric" value="'+esc(m.age||"")+'">'+
     '<label class="field-label">Telefono</label><input id="editPhone" class="big-input" type="tel" autocomplete="tel" value="'+esc(m.phone||"")+'">'+
     '<label class="field-label">Email</label><input id="editEmail" class="big-input" type="email" autocomplete="email" value="'+esc(m.email||"")+'">'+
-    editChoiceGroup("Frequenza","frequency",[["1","1× settimana"],["2","2× settimana"]],editDraft.frequency)+
+    '<div id="editFrequencyGroup">'+editChoiceGroup("Frequenza","frequency",[["1","1× settimana"],["2","2× settimana"]],editDraft.frequency)+'</div>'+
     '<div id="editDayGroup" style="display:'+(editDraft.frequency==="1"?'block':'none')+'">'+editChoiceGroup("Giorno","day",[["Martedì","Martedì"],["Giovedì","Giovedì"]],editDraft.day)+'</div>'+
     editChoiceGroup("Pacchetto","plan",MEMBER_PLAN_OPTIONS,editDraft.plan)+
     editChoiceGroup("Stato","status",[["Attivo","Attivo"],["In pausa","In pausa"],["Uscito","Uscito"]],editDraft.status)+
     (!isArchivedMember(m)?'<button type="button" class="member-delete" onclick="confirmMemberDelete(\''+esc(m.id)+'\')">ELIMINA ISCRITTO</button>':'');
   openModal({id:"memberEditModal",eyebrow:"MODIFICA ISCRITTO",title:esc(m.name),body,actions:'<button class="secondary" onclick="closeModal(\'memberEditModal\')">ANNULLA</button><button class="primary edit-save" onclick="saveMemberEdit()">SALVA</button>'});
+  setPlanScheduleVisibility("edit",editDraft.plan,editDraft.frequency);
 }
 function editChoiceGroup(label,group,items,selected){return '<div class="choice-section"><div class="field-label">'+label+'</div><div class="choice-grid">'+items.map(x=>'<button type="button" class="choice-btn '+(x[0]===selected?'selected':'')+'" data-edit-group="'+group+'" onclick="chooseEditOption(\''+group+'\',\''+x[0]+'\',this)">'+x[1]+'</button>').join('')+'</div></div>'}
-function chooseEditOption(group,value,btn){editDraft[group]=value;document.querySelectorAll('[data-edit-group="'+group+'"]').forEach(x=>x.classList.remove('selected'));btn.classList.add('selected');if(group==="frequency"){document.querySelector("#editDayGroup").style.display=value==="1"?"block":"none";editDraft.day=value==="1"?"Martedì":"Martedì+Giovedì"}}
+function chooseEditOption(group,value,btn){editDraft[group]=value;document.querySelectorAll('[data-edit-group="'+group+'"]').forEach(x=>x.classList.remove('selected'));btn.classList.add('selected');if(group==="frequency"){editDraft.day=value==="1"?"Martedì":"Martedì+Giovedì";setPlanScheduleVisibility("edit",editDraft.plan,editDraft.frequency)}if(group==="plan")setPlanScheduleVisibility("edit",editDraft.plan,editDraft.frequency)}
 function sendMemberStatusWrite(personId,status){
   const payload=JSON.stringify({token:token(),action:"setMemberStatus",data:{personId,status}});
   let beaconQueued=false;
@@ -954,7 +968,7 @@ async function deleteMember(id){
 async function saveMemberEdit(){
   const name=document.querySelector("#editName")?.value.trim(),age=Number(document.querySelector("#editAge")?.value),phone=document.querySelector("#editPhone")?.value.trim(),email=document.querySelector("#editEmail")?.value.trim();
   if(!name){showError("Inserisci nome e cognome.","Dato mancante");return}
-  const frequency=editDraft.frequency==="2"?"2x/settimana - Martedì+Giovedì":"1x/settimana - "+editDraft.day;
+  const frequency=memberFrequencyValue(editDraft.plan,editDraft.frequency,editDraft.day);
   const btn=document.querySelector(".edit-save");btn.disabled=true;btn.textContent="SALVATAGGIO…";
   try{
     const out=await api("updateMember",{personId:editDraft.id,name,age,phone,email,frequency,plan:editDraft.plan,status:editDraft.status});

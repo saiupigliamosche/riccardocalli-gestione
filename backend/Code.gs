@@ -187,26 +187,29 @@ function trialList_() {
 
 function memberList_() {
   const rows = table_(sheet_(ADMIN.sheets.members));
-  return rows.map(r => ({
-    id: str_(r['Persona ID']),
-    name: str_(r['Nome e cognome']),
-    age: num_(r['Età']),
-    phone: str_(r['Telefono']),
-    email: str_(r['Email']),
-    plan: str_(r['Pacchetto']),
-    frequency: str_(r['Frequenza']),
-    status: str_(r['Stato']) || 'Attivo',
-    exitReason: str_(r['Motivo uscita']),
-    joinedAt: dateIso_(r['Data iscrizione']),
-    firstTrial: dateIso_(r['Data prima prova']),
-    lastAttendance: dateIso_(r['Ultima presenza']),
-    attendance30: num_(r['Presenze 30gg']),
-    consecutiveAbsences: num_(r['Assenze consecutive']),
-    risk: str_(r['Rischio drop']),
-    origin: str_(r['Origine acquisizione']),
-    campaign: str_(r['Campagna acquisizione']),
-    creative: str_(r['Creatività acquisizione'])
-  })).filter(x => x.name);
+  return rows.map(r => {
+    const plan = str_(r['Pacchetto']);
+    return {
+      id: str_(r['Persona ID']),
+      name: str_(r['Nome e cognome']),
+      age: num_(r['Età']),
+      phone: str_(r['Telefono']),
+      email: str_(r['Email']),
+      plan: plan,
+      frequency: entryPassDefinition_(plan) ? '' : str_(r['Frequenza']),
+      status: str_(r['Stato']) || 'Attivo',
+      exitReason: str_(r['Motivo uscita']),
+      joinedAt: dateIso_(r['Data iscrizione']),
+      firstTrial: dateIso_(r['Data prima prova']),
+      lastAttendance: dateIso_(r['Ultima presenza']),
+      attendance30: num_(r['Presenze 30gg']),
+      consecutiveAbsences: num_(r['Assenze consecutive']),
+      risk: str_(r['Rischio drop']),
+      origin: str_(r['Origine acquisizione']),
+      campaign: str_(r['Campagna acquisizione']),
+      creative: str_(r['Creatività acquisizione'])
+    };
+  }).filter(x => x.name);
 }
 
 function paymentList_(rows) {
@@ -282,8 +285,9 @@ function dashboard_(memberRows, trialRows, paymentRows, financeRows) {
   const financeSummary = financeSummary_(finance);
   const active = members.filter(x => x.status === 'Attivo');
   const activeMembers = active.length;
-  const membersTwiceWeekly = active.filter(x => /^2/.test(str_(x.frequency))).length;
-  const membersOnceWeekly = active.filter(x => /^1/.test(str_(x.frequency))).length;
+  const scheduledMembers = active.filter(x => !entryPassDefinition_(x.plan));
+  const membersTwiceWeekly = scheduledMembers.filter(x => /^2/.test(str_(x.frequency))).length;
+  const membersOnceWeekly = scheduledMembers.filter(x => /^1/.test(str_(x.frequency))).length;
   const bookings = trials.filter(x => !['Annullato'].includes(x.status)).length;
   const revenue = payments.reduce((s,p) => s + num_(p.amount),0);
   const currentMonth = Utilities.formatDate(new Date(), ADMIN.timezone, 'yyyy-MM');
