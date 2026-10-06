@@ -21,14 +21,23 @@ const ADMIN = {
 
 const FINANCE = {
   headers: ['Pagamento ID','Persona ID','Nome e cognome','Data pagamento','Importo lordo','Metodo','Classificazione incasso','Stato fattura','Numero fattura','Data fattura','Documento fattura ID','Stato tasse','Importo tasse','Data trasferimento tasse','Conto destinazione tasse','Note','Ultimo aggiornamento'],
-  classifications: ['Fattura prevista','Eccezione: non professionale / nessuna fattura'],
-  defaultClassification: 'Fattura prevista',
-  exceptionClassification: 'Eccezione: non professionale / nessuna fattura',
-  invoiceStatuses: ['Da decidere','Da emettere','Emessa','Nessuna fattura prevista'],
+  classifications: ['Fattura','Eccezione'],
+  defaultClassification: 'Fattura',
+  exceptionClassification: 'Eccezione',
+  invoiceStatuses: ['Da decidere','Da emettere','Emessa','Nessuna'],
   taxStatuses: ['Da spostare','Spostate','Non previste'],
   taxableBaseRate: 0.78,
   taxRate: 0.31,
   stampDuty: 2
+};
+
+const ENTRY_PASSES = {
+  headers: ['Ingressi totali','Ingressi utilizzati','Ingressi rimanenti','Avviso metà ingressi','Avviso ultima entrata'],
+  types: {
+    single: { label: 'Ingresso singolo', amount: 15, total: 1 },
+    carnet5: { label: 'Carnet 5 ingressi', amount: 60, total: 5 },
+    carnet10: { label: 'Carnet 10 ingressi', amount: 110, total: 10 }
+  }
 };
 
 function doGet() {
@@ -101,6 +110,7 @@ function authorize_(token) {
 
 function bootstrap_() {
   ensureMemberPortalSchemaOnce_();
+  ensureEntryPassSchema_();
   const trials = trialList_();
   const members = memberList_();
   const paymentRows = paymentRows_();
@@ -210,8 +220,45 @@ function paymentList_(rows) {
     method: str_(r['Metodo']),
     invoiced: str_(r['Fattura emessa']),
     installment: str_(r['Periodo/Rata']),
-    origin: str_(r['Origine acquisizione'])
+    origin: str_(r['Origine acquisizione']),
+    entryType: entryPassDefinition_(r['Tipo pagamento']) ? entryPassDefinition_(r['Tipo pagamento']).label : '',
+    entriesTotal: entryPassStats_(r).total,
+    entriesUsed: entryPassStats_(r).used,
+    entriesRemaining: entryPassStats_(r).remaining,
+    entryNotice: entryPassNotice_(entryPassStats_(r))
   })).filter(x => x.name).sort((a,b) => String(b.date).localeCompare(String(a.date))).slice(0,50);
+}
+
+function entryPassDefinition_(type) {
+  const value = clean_(type).toLowerCase();
+  if (!value) return null;
+  if (value === 'ingresso singolo' || value.indexOf('ingresso singolo') >= 0) return ENTRY_PASSES.types.single;
+  if (value.indexOf('carnet') >= 0 && /\b5\b/.test(value)) return ENTRY_PASSES.types.carnet5;
+  if (value.indexOf('carnet') >= 0 && /\b10\b/.test(value)) return ENTRY_PASSES.types.carnet10;
+  return null;
+}
+
+function entryPassStats_(row) {
+  const definition = entryPassDefinition_(row && row['Tipo pagamento']);
+  const total = num_(row && row['Ingressi totali']) || (definition ? definition.total : 0);
+  if (!total) return { total: 0, used: 0, remaining: 0, halfAlert: str_(row && row['Avviso metà ingressi']), lastAlert: str_(row && row['Avviso ultima entrata']) };
+  const used = Math.max(0, Math.min(total, num_(row && row['Ingressi utilizzati'])));
+  return {
+    total: total,
+    used: used,
+    remaining: Math.max(0, total - used),
+    halfAlert: str_(row && row['Avviso metà ingressi']),
+    lastAlert: str_(row && row['Avviso ultima entrata'])
+  };
+}
+
+function entryPassNotice_(stats) {
+  if (!stats || !stats.total) return '';
+  if (stats.remaining <= 0) return 'Esaurito';
+  if (stats.remaining === 1) return 'Rimane 1 entrata';
+  const threshold = Math.floor(stats.total / 2);
+  if (threshold > 0 && stats.remaining <= threshold) return 'Meno della metà disponibile';
+  return '';
 }
 
 function lessonList_() {
@@ -283,7 +330,7 @@ function togglePresence_(d) {
   const type = clean_(d.type) === 'trial' ? 'Prova' : 'Iscritto';
   if (!personId) throw new Error('Persona non valida.');
 
-  const sh = sheet_(ADMIN.sheets.attendance);
+  const sh = ensureAttendanceEntrySchema_();
   const headers = headers_(sh);
   const rows = sh.getDataRange().getValues();
   let found = -1;
@@ -295,7 +342,11 @@ function togglePresence_(d) {
   if (found > 0) {
     const col = headers.indexOf('Presente') + 1;
     const current = sh.getRange(found,col).getValue();
-    sh.getRange(found,col).setValue(String(current)==='Sì' ? 'No' : 'Sì');
+    const nextPresent = String(current) !== 'Sì';
+    sh.getRange(found,col).setValue(nextPresent ? 'Sì' : 'No');
+    const entry = type === 'Iscritto' ? syncEntryForAttendance_(lessonKey, personId, nextPresent) : null;
+    refreshMemberMetrics_();
+    return { ok:true, present:nextPresent, entry:entry };
   } else {
     const entity = type==='Prova' ? findTrialEntity_(personId) : findMember_(personId);
     appendByHeaders_(sh, {
@@ -311,9 +362,10 @@ function togglePresence_(d) {
       'Booking ID': type==='Prova' ? entity.id : '',
       'Timestamp': new Date()
     });
+    const entry = type === 'Iscritto' ? syncEntryForAttendance_(lessonKey, personId, true) : null;
+    refreshMemberMetrics_();
+    return { ok:true, present:true, entry:entry };
   }
-  refreshMemberMetrics_();
-  return { ok:true };
 }
 
 
@@ -324,7 +376,7 @@ function setPresence_(d) {
   const present = d.present === true || clean_(d.present) === 'Sì';
   if (!personId) throw new Error('Persona non valida.');
 
-  const sh = sheet_(ADMIN.sheets.attendance);
+  const sh = ensureAttendanceEntrySchema_();
   const headers = headers_(sh);
   const rows = sh.getDataRange().getValues();
   let found = -1;
@@ -357,13 +409,15 @@ function setPresence_(d) {
     });
   }
 
+  const entry = type === 'Iscritto' ? syncEntryForAttendance_(lessonKey, personId, present) : null;
+
   if (type==='Prova') {
     const entity = findTrialEntity_(personId);
     if (entity && entity.id) setTrialPresence_(entity.id,present?'Sì':'No');
   }
 
   refreshMemberMetrics_();
-  return { ok:true, present };
+  return { ok:true, present, entry };
 }
 
 function closeLesson_(d) {
@@ -449,6 +503,7 @@ function setTrialStatus_(d) {
 }
 
 function recordPayment_(d) {
+  ensureEntryPassSchema_();
   const personId=clean_(d.personId);
   const member=personId ? findMember_(personId,true) : null;
   const name=clean_(d.name || (member&&member.name));
@@ -456,6 +511,7 @@ function recordPayment_(d) {
   if(!name||amount<=0) throw new Error('Pagamento non valido.');
 
   const paymentId=id_('PAY');
+  const entryDefinition = entryPassDefinition_(d.type);
   appendByHeaders_(sheet_(ADMIN.sheets.payments),{
     'Data':new Date(),
     'Nome e cognome':name,
@@ -471,7 +527,12 @@ function recordPayment_(d) {
     'Campagna':clean_(d.campaign || (member&&member.campaign)),
     'Creatività':clean_(d.creative || (member&&member.creative)),
     'Registrato da':ADMIN.ownerEmail,
-    'Timestamp':new Date()
+    'Timestamp':new Date(),
+    'Ingressi totali':entryDefinition ? entryDefinition.total : '',
+    'Ingressi utilizzati':entryDefinition ? 0 : '',
+    'Ingressi rimanenti':entryDefinition ? entryDefinition.total : '',
+    'Avviso metà ingressi':'',
+    'Avviso ultima entrata':''
   });
   if(personId && typeof settleNextDeadline_==='function') settleNextDeadline_(personId,amount,paymentId);
   return {ok:true,paymentId};
@@ -501,7 +562,7 @@ function updateFinance_(d) {
   const taxAmount = financeTaxAmount_(row['Importo lordo']);
   const fields = {
     'Classificazione incasso': classification,
-    'Stato fattura': classification === FINANCE.exceptionClassification ? 'Nessuna fattura prevista' : invoiceStatus,
+    'Stato fattura': classification === FINANCE.exceptionClassification ? 'Nessuna' : invoiceStatus,
     'Numero fattura': clean_(d.invoiceNumber),
     'Data fattura': invoiceDate || '',
     'Stato tasse': taxStatus,
@@ -582,6 +643,31 @@ function ensureFinanceSchema_(paymentRows) {
   }
 
   const financeHeaders = headers_(sh);
+  const classificationCol = financeHeaders.indexOf('Classificazione incasso');
+  if (classificationCol >= 0 && sh.getLastRow() > 1) {
+    const classificationData = sh.getRange(2, classificationCol + 1, sh.getLastRow() - 1, 1).getValues();
+    let classificationChanged = false;
+    classificationData.forEach(function(row) {
+      const normalized = financeClassification_(row[0]);
+      if (str_(row[0]) && row[0] !== normalized) {
+        row[0] = normalized;
+        classificationChanged = true;
+      }
+    });
+    if (classificationChanged) sh.getRange(2, classificationCol + 1, classificationData.length, 1).setValues(classificationData);
+  }
+  const invoiceStatusCol = financeHeaders.indexOf('Stato fattura');
+  if (invoiceStatusCol >= 0 && sh.getLastRow() > 1) {
+    const invoiceStatusData = sh.getRange(2, invoiceStatusCol + 1, sh.getLastRow() - 1, 1).getValues();
+    let invoiceStatusChanged = false;
+    invoiceStatusData.forEach(function(row) {
+      if (str_(row[0]) === 'Nessuna fattura prevista') {
+        row[0] = 'Nessuna';
+        invoiceStatusChanged = true;
+      }
+    });
+    if (invoiceStatusChanged) sh.getRange(2, invoiceStatusCol + 1, invoiceStatusData.length, 1).setValues(invoiceStatusData);
+  }
   const financeTaxCol = financeHeaders.indexOf('Importo tasse');
   const financeGrossCol = financeHeaders.indexOf('Importo lordo');
   const financeIdCol = financeHeaders.indexOf('Pagamento ID');
@@ -647,7 +733,7 @@ function financeList_() {
       amount: num_(r['Importo lordo']),
       method: str_(r['Metodo']),
       classification: classification,
-      invoiceStatus: classification === FINANCE.exceptionClassification && str_(r['Stato fattura']) !== 'Emessa' ? 'Nessuna fattura prevista' : (str_(r['Stato fattura']) || 'Da decidere'),
+      invoiceStatus: classification === FINANCE.exceptionClassification && str_(r['Stato fattura']) !== 'Emessa' ? 'Nessuna' : (str_(r['Stato fattura']) === 'Nessuna fattura prevista' ? 'Nessuna' : (str_(r['Stato fattura']) || 'Da decidere')),
       invoiceNumber: str_(r['Numero fattura']),
       invoiceDate: dateKey_(r['Data fattura']),
       invoiceDocumentId: str_(r['Documento fattura ID']),
@@ -668,7 +754,7 @@ function financeSummary_(rows) {
   const taxesToMove = list.filter(function(x) { return x.taxStatus === 'Da spostare'; });
   const completed = list.filter(function(x) {
     return x.classification &&
-      ['Emessa','Nessuna fattura prevista'].indexOf(x.invoiceStatus) >= 0 &&
+      ['Emessa','Nessuna','Nessuna fattura prevista'].indexOf(x.invoiceStatus) >= 0 &&
       ['Spostate','Non previste'].indexOf(x.taxStatus) >= 0;
   });
   return {
@@ -692,14 +778,14 @@ function financeTaxAmount_(gross) {
 }
 
 function enumFinance_(value, allowed, label) {
-  const v = clean_(value);
+  const raw = clean_(value), v = raw === 'Nessuna fattura prevista' ? 'Nessuna' : raw;
   if (allowed.indexOf(v) < 0) throw new Error(label + ' non valido.');
   return v;
 }
 
 function financeClassification_(value) {
   const v = clean_(value);
-  if (v === FINANCE.exceptionClassification || v === 'Incasso non professionale') return FINANCE.exceptionClassification;
+  if (v === FINANCE.exceptionClassification || v === 'Incasso non professionale' || /^Eccezione\s*:/.test(v)) return FINANCE.exceptionClassification;
   return FINANCE.defaultClassification;
 }
 
@@ -902,6 +988,140 @@ function findTrialEntity_(id){return trialList_().find(x=>x.id===id||x.personId=
 function findMember_(id,quiet){const m=memberList_().find(x=>x.id===id)||null;if(!m&&!quiet)throw new Error('Iscritto non trovato.');return m;}
 function paymentRows_(){return table_(sheet_(ADMIN.sheets.payments));}
 function paymentListAll_(rows){return (rows||paymentRows_()).map(function(r){return {amount:num_(r['Importo']),month:monthKey_(r['Data'])};});}
+
+function ensureEntryPassSchema_() {
+  const sh = sheet_(ADMIN.sheets.payments);
+  ENTRY_PASSES.headers.forEach(function(header) { ensureColumn_(sh, header); });
+  const h = headers_(sh), rows = sh.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    if (rowBlank_(rows[i])) continue;
+    const row = rowObj_(h, rows[i]), definition = entryPassDefinition_(row['Tipo pagamento']);
+    if (!definition) continue;
+    const stats = entryPassStats_(row), rowNumber = i + 1;
+    setCellByHeader_(sh, rowNumber, h, 'Ingressi totali', stats.total || definition.total);
+    setCellByHeader_(sh, rowNumber, h, 'Ingressi utilizzati', stats.used);
+    setCellByHeader_(sh, rowNumber, h, 'Ingressi rimanenti', stats.remaining);
+  }
+  return sh;
+}
+
+function ensureAttendanceEntrySchema_() {
+  const sh = sheet_(ADMIN.sheets.attendance);
+  ensureColumn_(sh, 'Pagamento ID');
+  ensureColumn_(sh, 'Ingresso scalato');
+  return sh;
+}
+
+function entryPaymentCandidates_(personId, lessonKey) {
+  ensureEntryPassSchema_();
+  const wanted = clean_(personId), key = clean_(lessonKey), sh = sheet_(ADMIN.sheets.payments), h = headers_(sh), rows = sh.getDataRange().getValues();
+  return rows.slice(1).map(function(values, index) {
+    const row = rowObj_(h, values), definition = entryPassDefinition_(row['Tipo pagamento']);
+    return { row: row, rowNumber: index + 2, definition: definition };
+  }).filter(function(item) {
+    if (!item.definition || str_(item.row['Persona ID']) !== wanted) return false;
+    const date = dateKey_(item.row['Data']);
+    return !key || !date || date <= key;
+  }).sort(function(a,b) {
+    const dateA = dateKey_(a.row['Data']), dateB = dateKey_(b.row['Data']);
+    return String(dateA).localeCompare(String(dateB)) || a.rowNumber - b.rowNumber;
+  });
+}
+
+function entryPaymentById_(paymentId) {
+  const wanted = clean_(paymentId);
+  if (!wanted) return null;
+  ensureEntryPassSchema_();
+  const sh = sheet_(ADMIN.sheets.payments), h = headers_(sh), rows = sh.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    const row = rowObj_(h, rows[i]);
+    if (str_(row['Pagamento ID']) === wanted && entryPassDefinition_(row['Tipo pagamento'])) return { row: row, rowNumber: i + 1, definition: entryPassDefinition_(row['Tipo pagamento']) };
+  }
+  return null;
+}
+
+function entryPassesForMember_(personId) {
+  return entryPaymentCandidates_(personId, '').map(function(item) {
+    const stats = entryPassStats_(item.row);
+    return {
+      paymentId: str_(item.row['Pagamento ID']),
+      type: item.definition.label,
+      date: dateIso_(item.row['Data']),
+      amount: num_(item.row['Importo']),
+      total: stats.total,
+      used: stats.used,
+      remaining: stats.remaining,
+      notice: entryPassNotice_(stats)
+    };
+  });
+}
+
+function sendEntryThresholdPush_(personId, definition, stats, kind, paymentId) {
+  if (typeof sendMemberPush_ !== 'function') return;
+  const member = findMember_(personId, true);
+  if (!member) return;
+  const last = kind === 'last';
+  sendMemberPush_(member.id, {
+    title: last ? 'Rimane un’ultima entrata' : 'Il carnet è a metà',
+    body: last ? 'Ti rimane 1 entrata del ' + definition.label + '.' : 'Ti rimangono ' + stats.remaining + ' entrate del ' + definition.label + '.',
+    url: MEMBER_PORTAL.url + '#payments',
+    tag: 'entry-pass-' + paymentId + '-' + kind
+  });
+}
+
+function updateEntryPayment_(payment, delta, personId) {
+  if (!payment || !payment.definition) return { total: 0, used: 0, remaining: 0, notice: '' };
+  const sh = sheet_(ADMIN.sheets.payments), h = headers_(sh), stats = entryPassStats_(payment.row);
+  const nextUsed = Math.max(0, Math.min(stats.total, stats.used + delta));
+  const next = { total: stats.total, used: nextUsed, remaining: Math.max(0, stats.total - nextUsed), halfAlert: stats.halfAlert, lastAlert: stats.lastAlert };
+  setCellByHeader_(sh, payment.rowNumber, h, 'Ingressi totali', next.total);
+  setCellByHeader_(sh, payment.rowNumber, h, 'Ingressi utilizzati', next.used);
+  setCellByHeader_(sh, payment.rowNumber, h, 'Ingressi rimanenti', next.remaining);
+  if (delta > 0 && next.remaining === 1 && !next.lastAlert) {
+    next.lastAlert = new Date();
+    setCellByHeader_(sh, payment.rowNumber, h, 'Avviso ultima entrata', next.lastAlert);
+    sendEntryThresholdPush_(personId, payment.definition, next, 'last', str_(payment.row['Pagamento ID']));
+  } else if (delta > 0 && next.total >= 2 && next.remaining <= Math.floor(next.total / 2) && !next.halfAlert) {
+    next.halfAlert = new Date();
+    setCellByHeader_(sh, payment.rowNumber, h, 'Avviso metà ingressi', next.halfAlert);
+    sendEntryThresholdPush_(personId, payment.definition, next, 'half', str_(payment.row['Pagamento ID']));
+  }
+  return { total: next.total, used: next.used, remaining: next.remaining, notice: entryPassNotice_(next) };
+}
+
+function syncEntryForAttendance_(lessonKey, personId, present) {
+  const sh = ensureAttendanceEntrySchema_(), h = headers_(sh), rows = sh.getDataRange().getValues();
+  let rowNumber = 0, row = null;
+  for (let i = 1; i < rows.length; i++) {
+    const candidate = rowObj_(h, rows[i]);
+    if (dateKey_(candidate['Data lezione']) === lessonKey && str_(candidate['Persona ID']) === personId) {
+      rowNumber = i + 1;
+      row = candidate;
+      break;
+    }
+  }
+  if (!rowNumber) return { total: 0, used: 0, remaining: 0, notice: '' };
+  const assignedId = str_(row['Pagamento ID']), alreadyScaled = str_(row['Ingresso scalato']) === 'Sì';
+  if (present) {
+    if (assignedId || alreadyScaled) {
+      const assigned = entryPaymentById_(assignedId);
+      return assigned ? (function() { const s = entryPassStats_(assigned.row); return { total: s.total, used: s.used, remaining: s.remaining, notice: entryPassNotice_(s) }; })() : { total: 0, used: 0, remaining: 0, notice: '' };
+    }
+    const payment = entryPaymentCandidates_(personId, lessonKey).find(function(item) { return entryPassStats_(item.row).remaining > 0; });
+    if (!payment) return { total: 0, used: 0, remaining: 0, notice: 'Nessun carnet disponibile' };
+    const stats = updateEntryPayment_(payment, 1, personId);
+    const attendanceHeaders = headers_(sh);
+    setCellByHeader_(sh, rowNumber, attendanceHeaders, 'Pagamento ID', str_(payment.row['Pagamento ID']));
+    setCellByHeader_(sh, rowNumber, attendanceHeaders, 'Ingresso scalato', 'Sì');
+    return stats;
+  }
+  if (!assignedId && !alreadyScaled) return { total: 0, used: 0, remaining: 0, notice: '' };
+  const payment = entryPaymentById_(assignedId);
+  const released = payment ? updateEntryPayment_(payment, -1, personId) : null;
+  setCellByHeader_(sh, rowNumber, h, 'Pagamento ID', '');
+  setCellByHeader_(sh, rowNumber, h, 'Ingresso scalato', '');
+  return released || { total: 0, used: 0, remaining: 0, notice: '' };
+}
 
 function paymentSummary_(paymentRows, deadlines) {
   const paidPeople = {};

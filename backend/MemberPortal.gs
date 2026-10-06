@@ -175,6 +175,7 @@ function memberLogout_(data) {
 }
 
 function memberPortalPayload_(member) {
+  ensureEntryPassSchema_();
   let deadlines = deadlineList_().filter(function(x) { return x.personId === member.id; });
   if (!deadlines.length) {
     ensureMemberDeadlines_(member);
@@ -424,8 +425,11 @@ function settleNextDeadline_(personId, amount, paymentId) {
 }
 
 function memberPaymentList_(personId) {
+  ensureEntryPassSchema_();
   return table_(sheet_(ADMIN.sheets.payments)).map(function(r) {
-    return { id: str_(r['Pagamento ID']), personId: str_(r['Persona ID']), name: str_(r['Nome e cognome']), date: dateIso_(r['Data']), type: str_(r['Tipo pagamento']), amount: num_(r['Importo']), method: str_(r['Metodo']), installment: str_(r['Periodo/Rata']) };
+    const stats = entryPassStats_(r);
+    const definition = entryPassDefinition_(r['Tipo pagamento']);
+    return { id: str_(r['Pagamento ID']), personId: str_(r['Persona ID']), name: str_(r['Nome e cognome']), date: dateIso_(r['Data']), type: str_(r['Tipo pagamento']), amount: num_(r['Importo']), method: str_(r['Metodo']), installment: str_(r['Periodo/Rata']), entryType: definition ? definition.label : '', entriesTotal: stats.total, entriesUsed: stats.used, entriesRemaining: stats.remaining, entryNotice: entryPassNotice_(stats) };
   }).filter(function(p) { return p.personId === personId; }).sort(function(a,b) { return String(b.date).localeCompare(String(a.date)); });
 }
 
