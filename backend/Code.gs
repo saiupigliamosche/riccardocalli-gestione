@@ -20,7 +20,7 @@ const ADMIN = {
 };
 
 const FINANCE = {
-  headers: ['Pagamento ID','Persona ID','Nome e cognome','Data pagamento','Importo lordo','Metodo','Classificazione incasso','Stato fattura','Numero fattura','Data fattura','Stato tasse','Importo tasse','Data trasferimento tasse','Conto destinazione tasse','Note','Ultimo aggiornamento'],
+  headers: ['Pagamento ID','Persona ID','Nome e cognome','Data pagamento','Importo lordo','Metodo','Classificazione incasso','Stato fattura','Numero fattura','Data fattura','Documento fattura ID','Stato tasse','Importo tasse','Data trasferimento tasse','Conto destinazione tasse','Note','Ultimo aggiornamento'],
   classifications: ['Da classificare','Incasso professionale','Incasso non professionale','Da verificare'],
   invoiceStatuses: ['Da decidere','Da emettere','Emessa','Nessuna fattura prevista'],
   taxStatuses: ['Da spostare','Spostate','Non previste'],
@@ -29,7 +29,7 @@ const FINANCE = {
 };
 
 function doGet() {
-  return json_({ ok: true, service: 'Parkour Course OS API', version: '1.7.0' });
+  return json_({ ok: true, service: 'Parkour Course OS API', version: '1.8.0' });
 }
 
 function doPost(e) {
@@ -72,6 +72,7 @@ function doPost(e) {
     if (action === 'sendMemberAccessLink') return json_(sendMemberAccessLink_(data));
     if (action === 'installPortalAutomation') return json_(installMemberPortalAutomation_());
     if (action === 'updateFinance') return json_(updateFinance_(data));
+    if (action === 'uploadFinanceInvoice') return json_(uploadFinanceInvoice_(data));
 
     return json_({ ok: false, error: 'Azione non valida.' });
   } catch (err) {
@@ -86,7 +87,7 @@ function actionNeedsLock_(action) {
     'memberRequestLink','memberRegisterPush','memberUnregisterPush','memberLogout',
     'togglePresence','setPresence','closeLesson','convertTrial','setTrialStatus','recordPayment',
     'archiveMember','setMemberStatus','updateMember','walkIn','saveLessonDidactics','updateDeadline',
-    'uploadMemberDocument','deleteMemberDocument','sendMemberAccessLink','installPortalAutomation','updateFinance'
+    'uploadMemberDocument','deleteMemberDocument','sendMemberAccessLink','installPortalAutomation','updateFinance','uploadFinanceInvoice'
   ].indexOf(action) >= 0;
 }
 
@@ -508,6 +509,52 @@ function updateFinance_(d) {
   return {ok:true,paymentId,finance:finance.find(function(x) { return x.id === paymentId; }) || null,financeRows:finance,summary:financeSummary_(finance)};
 }
 
+function uploadFinanceInvoice_(d) {
+  const paymentId = clean_(d.paymentId || d.id);
+  if (!paymentId) throw new Error('Pagamento non valido.');
+  if (clean_(d.mimeType).toLowerCase() !== 'application/pdf') throw new Error('La fattura deve essere un file PDF.');
+  if (!String(d.contentBase64 || '').trim()) throw new Error('Seleziona il PDF della fattura.');
+  ensureFinanceSchema_();
+  const sh = sheet_(ADMIN.sheets.finance), h = headers_(sh), rows = sh.getDataRange().getValues();
+  let rowNumber = 0, row = null;
+  const idCol = h.indexOf('Pagamento ID');
+  for (let i = 1; i < rows.length; i++) {
+    if (str_(rows[i][idCol]) === paymentId) {
+      rowNumber = i + 1;
+      row = rowObj_(h, rows[i]);
+      break;
+    }
+  }
+  if (!rowNumber) throw new Error('Riga fiscale non trovata.');
+  const member = findMember_(str_(row['Persona ID']));
+  const previousDocumentId = str_(row['Documento fattura ID']);
+  if (previousDocumentId && d.replaceExisting !== true) throw new Error('Questo pagamento ha già una fattura collegata.');
+  const invoiceNumber = clean_(d.invoiceNumber) || str_(row['Numero fattura']);
+  const title = clean_(d.title) || ('Fattura' + (invoiceNumber ? ' n. ' + invoiceNumber : ' · ' + member.name));
+  let fileName = sanitizeFileName_(clean_(d.fileName) || title + '.pdf');
+  if (!/\.pdf$/i.test(fileName)) fileName += '.pdf';
+  const result = uploadMemberDocument_({
+    personId: member.id,
+    title: title,
+    type: 'Fattura',
+    fileName: fileName,
+    mimeType: 'application/pdf',
+    contentBase64: d.contentBase64,
+    visible: true,
+    note: 'Pagamento ID: ' + paymentId
+  });
+  if (previousDocumentId) try { deleteMemberDocument_({documentId: previousDocumentId}); } catch (_) {}
+  const invoiceDate = parseFinanceDate_(d.invoiceDate) || row['Data fattura'] || new Date();
+  setCellByHeader_(sh, rowNumber, h, 'Stato fattura', 'Emessa');
+  setCellByHeader_(sh, rowNumber, h, 'Numero fattura', invoiceNumber);
+  setCellByHeader_(sh, rowNumber, h, 'Data fattura', invoiceDate);
+  setCellByHeader_(sh, rowNumber, h, 'Documento fattura ID', result.documentId);
+  setCellByHeader_(sh, rowNumber, h, 'Ultimo aggiornamento', new Date());
+  SpreadsheetApp.flush();
+  const finance = financeList_();
+  return {ok:true,paymentId,documentId:result.documentId,finance:finance.find(function(x) { return x.id === paymentId; }) || null,financeRows:finance,summary:financeSummary_(finance)};
+}
+
 function ensureFinanceSchema_(paymentRows) {
   const ss = SpreadsheetApp.openById(ADMIN.spreadsheetId);
   let sh = ss.getSheetByName(ADMIN.sheets.finance);
@@ -548,6 +595,7 @@ function ensureFinanceSchema_(paymentRows) {
       'Stato fattura': 'Da decidere',
       'Numero fattura': '',
       'Data fattura': '',
+      'Documento fattura ID': '',
       'Stato tasse': 'Da spostare',
       'Importo tasse': tax,
       'Data trasferimento tasse': '',
@@ -574,6 +622,7 @@ function financeList_() {
       invoiceStatus: str_(r['Stato fattura']) || 'Da decidere',
       invoiceNumber: str_(r['Numero fattura']),
       invoiceDate: dateKey_(r['Data fattura']),
+      invoiceDocumentId: str_(r['Documento fattura ID']),
       taxStatus: str_(r['Stato tasse']) || 'Da spostare',
       taxAmount: num_(r['Importo tasse']) || financeTaxAmount_(r['Importo lordo']),
       taxTransferDate: dateKey_(r['Data trasferimento tasse']),

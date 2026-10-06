@@ -129,6 +129,7 @@ h3{font-size:16px;margin:0}
 .finance-alert-grid span{font-size:9px;font-weight:800;text-transform:uppercase;color:var(--muted);line-height:1.2}
 .finance-edit-summary{display:flex;flex-direction:column;gap:4px;padding:14px;background:#eef4f1;border:1px solid #d8e5df;border-radius:15px;color:var(--brand)}
 .finance-edit-summary span{font-size:11px;color:var(--muted);line-height:1.4}
+.finance-invoice-linked{display:block!important;color:var(--brand)!important;font-weight:800}
 .finance-note{min-height:92px;resize:vertical}
 .finance-legal-note{margin-top:14px;font-size:11px}
 .finance-modal{width:min(100%,700px)}

@@ -1,4 +1,4 @@
-const CONFIG={VERSION:"0.11.0",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",ENROLLMENT_FORM:"https://form.jotform.com/262643062831050",SEASON_START:"2026-10-01",SEASON_END:"2027-06-09"};
+const CONFIG={VERSION:"0.12.0",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",ENROLLMENT_FORM:"https://form.jotform.com/262643062831050",SEASON_START:"2026-10-01",SEASON_END:"2027-06-09"};
 const now=new Date();
 const state={view:"home",today:null,trials:[],members:[],payments:[],finance:[],financeSummary:null,lessons:[],dashboard:null,portal:{deadlines:[],documents:[],rsvps:[]},monthYear:now.getFullYear(),monthIndex:now.getMonth(),selectedDate:null};
 const memberDirectory={filter:"Attivo",query:""};
@@ -310,7 +310,7 @@ function renderPayments(){
   if(!backend()||!token()){viewEl.innerHTML=connectionCard();return}
   const financeById={};(state.finance||[]).forEach(x=>financeById[x.id]=x);
   viewEl.innerHTML='<button class="primary" onclick="newPayment()">+ REGISTRA PAGAMENTO</button><section class="section"><div class="section-head"><h2>Ultimi pagamenti</h2><button class="secondary inline-action" onclick="state.view=\'finance\';render()">GESTISCI FINANZE</button></div>'+
-  (state.payments?.length?state.payments.map(x=>{const f=financeById[x.id];return '<div class="card payment-card"><div class="card-row"><div><div class="card-title">'+esc(x.name)+'</div><div class="card-sub">'+fmtDate(x.date)+' · '+esc(x.method||"")+'</div>'+(f?'<div class="payment-status-row"><span class="finance-chip '+financeStatusClass(f.classification)+'">'+esc(f.classification)+'</span><span class="finance-chip '+financeStatusClass(f.taxStatus)+'">Tasse: '+esc(f.taxStatus)+'</span></div>':'')+'</div><strong>'+money(x.amount)+'</strong></div>'+(f?'<button class="secondary payment-finance-btn" onclick="financeEdit(\''+esc(f.id)+'\')">AGGIORNA STATO FISCALE</button>':'')+'</div>'}).join(""):'<div class="empty">Nessun pagamento registrato.</div>')+'</section>';
+  (state.payments?.length?state.payments.map(x=>{const f=financeById[x.id];return '<div class="card payment-card"><div class="card-row"><div><div class="card-title">'+esc(x.name)+'</div><div class="card-sub">'+fmtDate(x.date)+' · '+esc(x.method||"")+'</div>'+(f?'<div class="payment-status-row"><span class="finance-chip '+financeStatusClass(f.classification)+'">'+esc(f.classification)+'</span><span class="finance-chip '+financeStatusClass(f.taxStatus)+'">Tasse: '+esc(f.taxStatus)+'</span>'+(f.invoiceDocumentId?'<span class="finance-chip ok">PDF fattura</span>':'')+'</div>':'')+'</div><strong>'+money(x.amount)+'</strong></div>'+(f?'<button class="secondary payment-finance-btn" onclick="financeEdit(\''+esc(f.id)+'\')">AGGIORNA STATO FISCALE</button>':'')+'</div>'}).join(""):'<div class="empty">Nessun pagamento registrato.</div>')+'</section>';
 }
 function financeStatusClass(value){
   const v=String(value||"");
@@ -321,11 +321,13 @@ function financeStatusClass(value){
 function financeOptionList(values,selected){return values.map(v=>'<option value="'+esc(v)+'" '+(v===selected?'selected':'')+'>'+esc(v)+'</option>').join("")}
 function financeEdit(id){
   const x=(state.finance||[]).find(row=>row.id===id);if(!x)return;
-  const body='<div class="finance-edit-summary"><strong>'+esc(x.name)+'</strong><span>'+fmtDate(x.date)+' · importo lordo '+money(x.amount)+'</span><span>Tasse stimate: <b>'+money(x.taxAmount)+'</b> · formula '+esc((state.financeSummary||{}).formula||"Importo lordo × 78% × 31%")+'</span></div>'+
+  const linked=x.invoiceDocumentId?'<span class="finance-invoice-linked">PDF fattura già collegato all’area personale. Selezionando un nuovo PDF verrà sostituito.</span>':'<span class="finance-invoice-linked">Il PDF verrà mostrato automaticamente nell’area personale dell’iscritto.</span>';
+  const body='<div class="finance-edit-summary"><strong>'+esc(x.name)+'</strong><span>'+fmtDate(x.date)+' · importo lordo '+money(x.amount)+'</span><span>Tasse stimate: <b>'+money(x.taxAmount)+'</b> · formula '+esc((state.financeSummary||{}).formula||"Importo lordo × 78% × 31%")+'</span>'+linked+'</div>'+
     '<label class="field-label" for="financeClassification">Classificazione incasso</label><select id="financeClassification" class="big-select">'+financeOptionList(["Da classificare","Incasso professionale","Incasso non professionale","Da verificare"],x.classification)+'</select>'+
     '<label class="field-label" for="financeInvoiceStatus">Stato fattura</label><select id="financeInvoiceStatus" class="big-select">'+financeOptionList(["Da decidere","Da emettere","Emessa","Nessuna fattura prevista"],x.invoiceStatus)+'</select>'+
     '<label class="field-label" for="financeInvoiceNumber">Numero fattura <span class="optional">opzionale</span></label><input id="financeInvoiceNumber" class="big-input" value="'+esc(x.invoiceNumber||"")+'" placeholder="Es. 12/2026">'+
     '<label class="field-label" for="financeInvoiceDate">Data fattura <span class="optional">opzionale</span></label><input id="financeInvoiceDate" class="big-input" type="date" value="'+esc(x.invoiceDate||"")+'">'+
+    '<label class="field-label" for="financeInvoiceFile">PDF fattura <span class="optional">opzionale</span></label><input id="financeInvoiceFile" class="big-input file-input" type="file" accept="application/pdf"><div class="modal-message finance-legal-note">Caricando il PDF, la fattura viene marcata come emessa e resa visibile solo a '+esc(x.name)+' nell’area personale.</div>'+
     '<label class="field-label" for="financeTaxStatus">Stato tasse</label><select id="financeTaxStatus" class="big-select">'+financeOptionList(["Da spostare","Spostate","Non previste"],x.taxStatus)+'</select>'+
     '<label class="field-label" for="financeTaxTransferDate">Data trasferimento tasse <span class="optional">opzionale</span></label><input id="financeTaxTransferDate" class="big-input" type="date" value="'+esc(x.taxTransferDate||"")+'">'+
     '<label class="field-label" for="financeTaxAccount">Conto destinazione tasse <span class="optional">opzionale</span></label><input id="financeTaxAccount" class="big-input" value="'+esc(x.taxAccount||"")+'" placeholder="Es. conto tasse">'+
@@ -335,12 +337,24 @@ function financeEdit(id){
 }
 async function saveFinance(id){
   const btn=document.querySelector(".finance-save");if(btn){btn.disabled=true;btn.textContent="SALVATAGGIO…"}
+  const current=(state.finance||[]).find(row=>row.id===id)||{};
+  const file=document.querySelector("#financeInvoiceFile")?.files?.[0];
+  if(file&&file.type!=="application/pdf"){if(btn){btn.disabled=false;btn.textContent="SALVA"}showError("Seleziona un file PDF valido.","Fattura non caricata");return}
+  if(file&&file.size>4500000){if(btn){btn.disabled=false;btn.textContent="SALVA"}showError("Il PDF deve pesare meno di 4,5 MB.","Fattura non caricata");return}
   const payload={paymentId:id,classification:document.querySelector("#financeClassification")?.value,invoiceStatus:document.querySelector("#financeInvoiceStatus")?.value,invoiceNumber:document.querySelector("#financeInvoiceNumber")?.value.trim()||"",invoiceDate:document.querySelector("#financeInvoiceDate")?.value||"",taxStatus:document.querySelector("#financeTaxStatus")?.value,taxTransferDate:document.querySelector("#financeTaxTransferDate")?.value||"",taxAccount:document.querySelector("#financeTaxAccount")?.value.trim()||"",note:document.querySelector("#financeNote")?.value.trim()||""};
   try{
     const out=await api("updateFinance",payload);
     if(out.financeRows)state.finance=out.financeRows;
     if(out.summary)state.financeSummary=out.summary;
     if(state.dashboard)state.dashboard.finance=out.summary;
+    if(file){
+      if(btn)btn.textContent="CARICAMENTO PDF…";
+      const contentBase64=await fileBase64(file);
+      const invoice=await api("uploadFinanceInvoice",{paymentId:id,invoiceNumber:payload.invoiceNumber,invoiceDate:payload.invoiceDate,fileName:file.name,mimeType:file.type,contentBase64,replaceExisting:!!current.invoiceDocumentId});
+      if(invoice.financeRows)state.finance=invoice.financeRows;
+      if(invoice.summary)state.financeSummary=invoice.summary;
+      if(state.dashboard)state.dashboard.finance=invoice.summary;
+    }
     closeModal("financeModal");renderFinance();toast("Stato fiscale aggiornato");
   }catch(e){if(btn){btn.disabled=false;btn.textContent="SALVA"}showError(e.message,"Finanze non aggiornate")}
 }
@@ -352,7 +366,7 @@ function renderFinance(){
   const card=(value,label,detail,kind)=>'<div class="kpi finance-kpi '+(kind||"")+'"><strong>'+value+'</strong><span>'+label+'</span>'+(detail?'<small>'+detail+'</small>':'')+'</div>';
   const cards='<div class="finance-kpi-grid">'+card(s.toClassify??0,"Da classificare","prima verifica",s.toClassify?"warning":"")+card(s.taxesToMove??0,"Tasse da spostare",s.taxReserve!=null?money(s.taxReserve):"",s.taxesToMove?"warning":"")+card(s.invoiceDue??0,"Fatture da fare","stato manuale",s.invoiceDue?"warning":"")+card(s.completed??0,"Completati","fattura e tasse chiuse","")+'</div>';
   const formula='<div class="finance-formula"><strong>Formula mantenuta</strong><span>Importo lordo × 78% × 31% = '+Math.round((s.rate||0.2418)*10000)/100+'% del lordo</span><small>Le classificazioni e gli obblighi di fattura restano sotto il tuo controllo.</small></div>';
-  const list=rows.length?rows.map(x=>'<article class="finance-card"><div class="finance-card-top"><div><strong>'+esc(x.name)+'</strong><small>'+fmtDate(x.date)+' · '+esc(x.method||"Metodo non indicato")+'</small></div><strong>'+money(x.amount)+'</strong></div><div class="finance-tags"><span class="finance-chip '+financeStatusClass(x.classification)+'">'+esc(x.classification)+'</span><span class="finance-chip '+financeStatusClass(x.invoiceStatus)+'">Fattura: '+esc(x.invoiceStatus)+'</span><span class="finance-chip '+financeStatusClass(x.taxStatus)+'">Tasse: '+esc(x.taxStatus)+'</span></div><div class="finance-card-foot"><span>Tasse stimate '+money(x.taxAmount)+'</span><button class="secondary" onclick="financeEdit(\''+esc(x.id)+'\')">GESTISCI</button></div></article>').join(""):'<div class="empty">Nessun pagamento da controllare.</div>';
+  const list=rows.length?rows.map(x=>'<article class="finance-card"><div class="finance-card-top"><div><strong>'+esc(x.name)+'</strong><small>'+fmtDate(x.date)+' · '+esc(x.method||"Metodo non indicato")+'</small></div><strong>'+money(x.amount)+'</strong></div><div class="finance-tags"><span class="finance-chip '+financeStatusClass(x.classification)+'">'+esc(x.classification)+'</span><span class="finance-chip '+financeStatusClass(x.invoiceStatus)+'">Fattura: '+esc(x.invoiceStatus)+'</span><span class="finance-chip '+financeStatusClass(x.taxStatus)+'">Tasse: '+esc(x.taxStatus)+'</span>'+(x.invoiceDocumentId?'<span class="finance-chip ok">PDF nell’area iscritto</span>':'')+'</div><div class="finance-card-foot"><span>Tasse stimate '+money(x.taxAmount)+'</span><button class="secondary" onclick="financeEdit(\''+esc(x.id)+'\')">GESTISCI</button></div></article>').join(""):'<div class="empty">Nessun pagamento da controllare.</div>';
   viewEl.innerHTML=formula+cards+'<section class="section"><div class="section-head"><h2>Pagamenti da controllare</h2><button class="secondary inline-action" onclick="newPayment()">+ PAGAMENTO</button></div>'+list+'</section>';
 }
 function lessonNoteCard(x){
@@ -923,5 +937,5 @@ function restoreMember(id){
   });
 }
 
-if("serviceWorker"in navigator)window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js?v=0.11.2").catch(()=>{}));
+if("serviceWorker"in navigator)window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js?v=0.12.0").catch(()=>{}));
 loadAll();
