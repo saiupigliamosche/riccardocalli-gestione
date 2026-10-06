@@ -1,4 +1,4 @@
-const CONFIG={VERSION:"0.15.0",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",ENROLLMENT_FORM:"https://form.jotform.com/262643062831050",SEASON_START:"2026-10-01",SEASON_END:"2027-06-09"};
+const CONFIG={VERSION:"0.15.1",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",ENROLLMENT_FORM:"https://form.jotform.com/262643062831050",SEASON_START:"2026-10-01",SEASON_END:"2027-06-09"};
 const FINANCE_DEFAULT="Fattura prevista";
 const FINANCE_EXCEPTION="Eccezione: non professionale / nessuna fattura";
 const now=new Date();
@@ -307,12 +307,22 @@ function renderMembers(){
     '</div><div class="member-list" aria-label="Elenco iscritti">'+rows.map(memberRowHtml).join("")+'<div id="memberListEmpty" class="empty member-empty">Nessun iscritto corrisponde alla ricerca.</div></div>';
   applyMemberDirectory();
 }
+function derivePaymentSummary(){
+  const deadlines=state.portal?.deadlines||[], payments=state.payments||[], dashboard=state.dashboard||{};
+  const openDeadlines=deadlines.filter(d=>d.status==="Da pagare"||d.status==="Scaduta");
+  const duePeople=new Set(openDeadlines.map(d=>d.personId||d.name).filter(Boolean));
+  const paidPeople=new Set(deadlines.filter(d=>d.status==="Pagata").map(d=>d.personId||d.name).filter(Boolean));
+  payments.filter(p=>Number(p.amount||0)>0).forEach(p=>paidPeople.add(p.personId||p.name));
+  const received=Number(dashboard.revenue||0);
+  const outstanding=openDeadlines.reduce((sum,d)=>sum+Number(d.amount||0),0);
+  return {totalExpected:received+outstanding,received,outstanding,paidPeople:paidPeople.size,duePeople:duePeople.size,openDeadlines:openDeadlines.length};
+}
 function paymentSummaryCard(value,label,detail){return '<div class="kpi finance-kpi"><strong>'+esc(value)+'</strong><span>'+esc(label)+'</span>'+(detail?'<small>'+esc(detail)+'</small>':'')+'</div>'}
 function renderPayments(){
   titleEl.textContent="Pagamenti";
   if(!backend()||!token()){viewEl.innerHTML=connectionCard();return}
   const financeById={};(state.finance||[]).forEach(x=>financeById[x.id]=x);
-  const summary=state.paymentSummary||{};
+  const summary=state.paymentSummary||derivePaymentSummary();
   const summaryHtml='<section class="section payment-summary-section"><div class="section-head"><div><h2>Riepilogo incassi</h2><small>Pagamenti registrati e quote ancora aperte</small></div></div><div class="finance-kpi-grid payment-summary-grid">'+
     paymentSummaryCard(money(summary.totalExpected||0),"Totale previsto","per la stagione")+
     paymentSummaryCard(money(summary.received||0),"Già percepito","pagamenti registrati")+
@@ -959,5 +969,5 @@ function restoreMember(id){
   });
 }
 
-if("serviceWorker"in navigator)window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js?v=0.15.0").catch(()=>{}));
+if("serviceWorker"in navigator)window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js?v=0.15.1").catch(()=>{}));
 loadAll();
