@@ -21,15 +21,18 @@ const ADMIN = {
 
 const FINANCE = {
   headers: ['Pagamento ID','Persona ID','Nome e cognome','Data pagamento','Importo lordo','Metodo','Classificazione incasso','Stato fattura','Numero fattura','Data fattura','Documento fattura ID','Stato tasse','Importo tasse','Data trasferimento tasse','Conto destinazione tasse','Note','Ultimo aggiornamento'],
-  classifications: ['Da classificare','Incasso professionale','Incasso non professionale','Da verificare'],
+  classifications: ['Fattura prevista','Eccezione: non professionale / nessuna fattura'],
+  defaultClassification: 'Fattura prevista',
+  exceptionClassification: 'Eccezione: non professionale / nessuna fattura',
   invoiceStatuses: ['Da decidere','Da emettere','Emessa','Nessuna fattura prevista'],
   taxStatuses: ['Da spostare','Spostate','Non previste'],
   taxableBaseRate: 0.78,
-  taxRate: 0.31
+  taxRate: 0.31,
+  stampDuty: 2
 };
 
 function doGet() {
-  return json_({ ok: true, service: 'Parkour Course OS API', version: '1.8.0' });
+  return json_({ ok: true, service: 'Parkour Course OS API', version: '1.10.0' });
 }
 
 function doPost(e) {
@@ -236,6 +239,8 @@ function dashboard_(memberRows, trialRows, paymentRows, financeRows) {
   const revenue = payments.reduce((s,p) => s + num_(p.amount),0);
   const currentMonth = Utilities.formatDate(new Date(), ADMIN.timezone, 'yyyy-MM');
   const currentMonthRevenue = payments.filter(p => p.month === currentMonth).reduce((s,p) => s + num_(p.amount),0);
+  const taxRevenue = finance.reduce((s, x) => s + financeTaxAmount_(x.amount), 0);
+  const netRevenue = revenue - taxRevenue;
 
   return {
     activeMembers,
@@ -244,9 +249,10 @@ function dashboard_(memberRows, trialRows, paymentRows, financeRows) {
     membersOnceWeekly,
     revenue,
     currentMonthRevenue,
-    averageMonthlyRevenue: revenue / 9,
-    netRevenue: revenue - (revenue * FINANCE.taxableBaseRate * FINANCE.taxRate),
-    taxRevenue: revenue * FINANCE.taxableBaseRate * FINANCE.taxRate,
+    averageMonthlyRevenue: netRevenue / 9,
+    averageMonthlyNet: netRevenue / 9,
+    netRevenue,
+    taxRevenue,
     finance: financeSummary
   };
 }
@@ -485,7 +491,7 @@ function updateFinance_(d) {
   }
   if (!rowNumber) throw new Error('Riga fiscale non trovata.');
 
-  const classification = enumFinance_(d.classification, FINANCE.classifications, 'Classificazione incasso');
+  const classification = financeClassification_(d.classification);
   const invoiceStatus = enumFinance_(d.invoiceStatus, FINANCE.invoiceStatuses, 'Stato fattura');
   const taxStatus = enumFinance_(d.taxStatus, FINANCE.taxStatuses, 'Stato tasse');
   const invoiceDate = parseFinanceDate_(d.invoiceDate);
@@ -493,7 +499,7 @@ function updateFinance_(d) {
   const taxAmount = financeTaxAmount_(row['Importo lordo']);
   const fields = {
     'Classificazione incasso': classification,
-    'Stato fattura': invoiceStatus,
+    'Stato fattura': classification === FINANCE.exceptionClassification ? 'Nessuna fattura prevista' : invoiceStatus,
     'Numero fattura': clean_(d.invoiceNumber),
     'Data fattura': invoiceDate || '',
     'Stato tasse': taxStatus,
@@ -526,6 +532,7 @@ function uploadFinanceInvoice_(d) {
     }
   }
   if (!rowNumber) throw new Error('Riga fiscale non trovata.');
+  if (financeClassification_(row['Classificazione incasso']) === FINANCE.exceptionClassification) throw new Error('Questo pagamento è segnato come eccezione senza fattura.');
   const member = findMember_(str_(row['Persona ID']));
   const previousDocumentId = str_(row['Documento fattura ID']);
   if (previousDocumentId && d.replaceExisting !== true) throw new Error('Questo pagamento ha già una fattura collegata.');
@@ -572,6 +579,24 @@ function ensureFinanceSchema_(paymentRows) {
     });
   }
 
+  const financeHeaders = headers_(sh);
+  const financeTaxCol = financeHeaders.indexOf('Importo tasse');
+  const financeGrossCol = financeHeaders.indexOf('Importo lordo');
+  const financeIdCol = financeHeaders.indexOf('Pagamento ID');
+  if (financeTaxCol >= 0 && financeGrossCol >= 0 && financeIdCol >= 0 && sh.getLastRow() > 1) {
+    const financeData = sh.getRange(2, 1, sh.getLastRow() - 1, financeHeaders.length).getValues();
+    let taxChanged = false;
+    financeData.forEach(function(r) {
+      if (!str_(r[financeIdCol])) return;
+      const nextTax = financeTaxAmount_(r[financeGrossCol]);
+      if (Number(r[financeTaxCol]) !== nextTax) {
+        r[financeTaxCol] = nextTax;
+        taxChanged = true;
+      }
+    });
+    if (taxChanged) sh.getRange(2, 1, financeData.length, financeHeaders.length).setValues(financeData);
+  }
+
   const payments = paymentRows || paymentRows_();
   const existing = {};
   table_(sh).forEach(function(r) { const id = str_(r['Pagamento ID']); if (id) existing[id] = true; });
@@ -591,7 +616,7 @@ function ensureFinanceSchema_(paymentRows) {
       'Data pagamento': r['Data'] || '',
       'Importo lordo': num_(r['Importo']),
       'Metodo': str_(r['Metodo']),
-      'Classificazione incasso': 'Da classificare',
+      'Classificazione incasso': FINANCE.defaultClassification,
       'Stato fattura': 'Da decidere',
       'Numero fattura': '',
       'Data fattura': '',
@@ -611,6 +636,7 @@ function ensureFinanceSchema_(paymentRows) {
 
 function financeList_() {
   return table_(sheet_(ADMIN.sheets.finance)).map(function(r) {
+    const classification = financeClassification_(r['Classificazione incasso']);
     return {
       id: str_(r['Pagamento ID']),
       personId: str_(r['Persona ID']),
@@ -618,8 +644,8 @@ function financeList_() {
       date: dateIso_(r['Data pagamento']),
       amount: num_(r['Importo lordo']),
       method: str_(r['Metodo']),
-      classification: str_(r['Classificazione incasso']) || 'Da classificare',
-      invoiceStatus: str_(r['Stato fattura']) || 'Da decidere',
+      classification: classification,
+      invoiceStatus: classification === FINANCE.exceptionClassification && str_(r['Stato fattura']) !== 'Emessa' ? 'Nessuna fattura prevista' : (str_(r['Stato fattura']) || 'Da decidere'),
       invoiceNumber: str_(r['Numero fattura']),
       invoiceDate: dateKey_(r['Data fattura']),
       invoiceDocumentId: str_(r['Documento fattura ID']),
@@ -635,36 +661,44 @@ function financeList_() {
 
 function financeSummary_(rows) {
   const list = rows || [];
-  const toClassify = list.filter(function(x) { return !x.classification || x.classification === 'Da classificare'; });
+  const exceptions = list.filter(function(x) { return x.classification === FINANCE.exceptionClassification; });
   const invoiceDue = list.filter(function(x) { return x.invoiceStatus === 'Da emettere'; });
   const taxesToMove = list.filter(function(x) { return x.taxStatus === 'Da spostare'; });
   const completed = list.filter(function(x) {
-    return x.classification && x.classification !== 'Da classificare' &&
+    return x.classification &&
       ['Emessa','Nessuna fattura prevista'].indexOf(x.invoiceStatus) >= 0 &&
       ['Spostate','Non previste'].indexOf(x.taxStatus) >= 0;
   });
   return {
     total: list.length,
-    toClassify: toClassify.length,
+    toClassify: exceptions.length,
+    exceptions: exceptions.length,
     invoiceDue: invoiceDue.length,
     taxesToMove: taxesToMove.length,
     completed: completed.length,
     gross: list.reduce(function(sum, x) { return sum + num_(x.amount); }, 0),
     taxReserve: taxesToMove.reduce(function(sum, x) { return sum + num_(x.taxAmount); }, 0),
     taxMoved: list.filter(function(x) { return x.taxStatus === 'Spostate'; }).reduce(function(sum, x) { return sum + num_(x.taxAmount); }, 0),
-    formula: 'Importo lordo × 78% × 31%',
-    rate: FINANCE.taxableBaseRate * FINANCE.taxRate
+    formula: 'Importo lordo × 78% × 31% + 2 € marca da bollo',
+    rate: FINANCE.taxableBaseRate * FINANCE.taxRate,
+    stampDuty: FINANCE.stampDuty
   };
 }
 
 function financeTaxAmount_(gross) {
-  return num_(gross) * FINANCE.taxableBaseRate * FINANCE.taxRate;
+  return num_(gross) * FINANCE.taxableBaseRate * FINANCE.taxRate + FINANCE.stampDuty;
 }
 
 function enumFinance_(value, allowed, label) {
   const v = clean_(value);
   if (allowed.indexOf(v) < 0) throw new Error(label + ' non valido.');
   return v;
+}
+
+function financeClassification_(value) {
+  const v = clean_(value);
+  if (v === FINANCE.exceptionClassification || v === 'Incasso non professionale') return FINANCE.exceptionClassification;
+  return FINANCE.defaultClassification;
 }
 
 function parseFinanceDate_(value) {
