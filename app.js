@@ -1,8 +1,8 @@
-const CONFIG={VERSION:"0.14.0",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",ENROLLMENT_FORM:"https://form.jotform.com/262643062831050",SEASON_START:"2026-10-01",SEASON_END:"2027-06-09"};
+const CONFIG={VERSION:"0.15.0",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",ENROLLMENT_FORM:"https://form.jotform.com/262643062831050",SEASON_START:"2026-10-01",SEASON_END:"2027-06-09"};
 const FINANCE_DEFAULT="Fattura prevista";
 const FINANCE_EXCEPTION="Eccezione: non professionale / nessuna fattura";
 const now=new Date();
-const state={view:"home",today:null,trials:[],members:[],payments:[],finance:[],financeSummary:null,lessons:[],dashboard:null,portal:{deadlines:[],documents:[],rsvps:[]},monthYear:now.getFullYear(),monthIndex:now.getMonth(),selectedDate:null};
+const state={view:"home",today:null,trials:[],members:[],payments:[],paymentSummary:null,finance:[],financeSummary:null,lessons:[],dashboard:null,portal:{deadlines:[],documents:[],rsvps:[]},monthYear:now.getFullYear(),monthIndex:now.getMonth(),selectedDate:null};
 const memberDirectory={filter:"Attivo",query:""};
 const $=s=>document.querySelector(s),viewEl=$("#view"),titleEl=$("#pageTitle"),toastEl=$("#toast");
 const backend=()=>localStorage.getItem("parkour_admin_endpoint")||CONFIG.DEFAULT_API;
@@ -112,7 +112,7 @@ function saveBackendToken(){const tk=document.querySelector("#adminToken")?.valu
 function disconnectBackend(){
   showConfirm({eyebrow:"SICUREZZA",title:"Disconnetti dispositivo",message:"Il token amministratore verrà rimosso solo da questo dispositivo.",confirmLabel:"DISCONNETTI",danger:true,onConfirm:()=>{
     localStorage.removeItem("parkour_admin_token");
-    Object.assign(state,{today:null,trials:[],members:[],payments:[],finance:[],financeSummary:null,lessons:[],dashboard:null,portal:{deadlines:[],documents:[],rsvps:[]}});
+    Object.assign(state,{today:null,trials:[],members:[],payments:[],paymentSummary:null,finance:[],financeSummary:null,lessons:[],dashboard:null,portal:{deadlines:[],documents:[],rsvps:[]}});
     render();
   }});
 }
@@ -307,11 +307,20 @@ function renderMembers(){
     '</div><div class="member-list" aria-label="Elenco iscritti">'+rows.map(memberRowHtml).join("")+'<div id="memberListEmpty" class="empty member-empty">Nessun iscritto corrisponde alla ricerca.</div></div>';
   applyMemberDirectory();
 }
+function paymentSummaryCard(value,label,detail){return '<div class="kpi finance-kpi"><strong>'+esc(value)+'</strong><span>'+esc(label)+'</span>'+(detail?'<small>'+esc(detail)+'</small>':'')+'</div>'}
 function renderPayments(){
   titleEl.textContent="Pagamenti";
   if(!backend()||!token()){viewEl.innerHTML=connectionCard();return}
   const financeById={};(state.finance||[]).forEach(x=>financeById[x.id]=x);
-  viewEl.innerHTML='<button class="primary" onclick="newPayment()">+ REGISTRA PAGAMENTO</button><section class="section"><div class="section-head"><h2>Ultimi pagamenti</h2><button class="secondary inline-action" onclick="state.view=\'finance\';render()">GESTISCI FINANZE</button></div>'+
+  const summary=state.paymentSummary||{};
+  const summaryHtml='<section class="section payment-summary-section"><div class="section-head"><div><h2>Riepilogo incassi</h2><small>Pagamenti registrati e quote ancora aperte</small></div></div><div class="finance-kpi-grid payment-summary-grid">'+
+    paymentSummaryCard(money(summary.totalExpected||0),"Totale previsto","per la stagione")+
+    paymentSummaryCard(money(summary.received||0),"Già percepito","pagamenti registrati")+
+    paymentSummaryCard(money(summary.outstanding||0),"Ancora da percepire","quote aperte")+
+    paymentSummaryCard(summary.paidPeople||0,"Persone che hanno pagato","almeno un pagamento")+
+    paymentSummaryCard(summary.duePeople||0,"Persone che devono pagare","con quote aperte")+
+    '</div></section>';
+  viewEl.innerHTML=summaryHtml+'<button class="primary" onclick="newPayment()">+ REGISTRA PAGAMENTO</button><section class="section"><div class="section-head"><h2>Ultimi pagamenti</h2><button class="secondary inline-action" onclick="state.view=\'finance\';render()">GESTISCI FINANZE</button></div>'+
   (state.payments?.length?state.payments.map(x=>{const f=financeById[x.id];return '<div class="card payment-card"><div class="card-row"><div><div class="card-title">'+esc(x.name)+'</div><div class="card-sub">'+fmtDate(x.date)+' · '+esc(x.method||"")+'</div>'+paymentReferenceHtml(x,f)+(f?'<div class="payment-status-row"><span class="finance-chip '+financeStatusClass(f.classification)+'">'+esc(financeClassificationLabel(f.classification))+'</span><span class="finance-chip '+financeStatusClass(f.taxStatus)+'">Tasse: '+esc(f.taxStatus)+'</span>'+(f.invoiceDocumentId?'<span class="finance-chip ok">PDF fattura</span>':'')+'</div>':'')+'</div><strong>'+money(x.amount)+'</strong></div>'+(f?'<button class="secondary payment-finance-btn" onclick="financeEdit(\''+esc(f.id)+'\')">AGGIORNA STATO FISCALE</button>':'')+'</div>'}).join(""):'<div class="empty">Nessun pagamento registrato.</div>')+'</section>';
 }
 function financeStatusClass(value){
@@ -950,5 +959,5 @@ function restoreMember(id){
   });
 }
 
-if("serviceWorker"in navigator)window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js?v=0.14.0").catch(()=>{}));
+if("serviceWorker"in navigator)window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js?v=0.15.0").catch(()=>{}));
 loadAll();

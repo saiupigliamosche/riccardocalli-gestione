@@ -32,7 +32,7 @@ const FINANCE = {
 };
 
 function doGet() {
-  return json_({ ok: true, service: 'Parkour Course OS API', version: '1.10.0' });
+  return json_({ ok: true, service: 'Parkour Course OS API', version: '1.11.0' });
 }
 
 function doPost(e) {
@@ -108,16 +108,18 @@ function bootstrap_() {
   const payments = paymentList_(paymentRows);
   const finance = financeList_();
   const lessons = lessonList_();
+  const portal = portalAdminData_(members);
   return {
     today: todayPayload_(members, trials),
     trials: trials,
     members: members,
     payments: payments,
+    paymentSummary: paymentSummary_(paymentRows, portal.deadlines),
     lessons: lessons,
     finance: finance,
     financeSummary: financeSummary_(finance),
     dashboard: dashboard_(members, trials, paymentRows, finance),
-    portal: portalAdminData_(members),
+    portal: portal,
     meta: {
       generatedAt: new Date().toISOString(),
       owner: ADMIN.ownerEmail
@@ -900,6 +902,34 @@ function findTrialEntity_(id){return trialList_().find(x=>x.id===id||x.personId=
 function findMember_(id,quiet){const m=memberList_().find(x=>x.id===id)||null;if(!m&&!quiet)throw new Error('Iscritto non trovato.');return m;}
 function paymentRows_(){return table_(sheet_(ADMIN.sheets.payments));}
 function paymentListAll_(rows){return (rows||paymentRows_()).map(function(r){return {amount:num_(r['Importo']),month:monthKey_(r['Data'])};});}
+
+function paymentSummary_(paymentRows, deadlines) {
+  const paidPeople = {};
+  let received = 0;
+  (paymentRows || []).forEach(function(r) {
+    const amount = num_(r['Importo']);
+    const name = str_(r['Nome e cognome']);
+    if (!name || amount <= 0) return;
+    received += amount;
+    const personKey = str_(r['Persona ID']) || name;
+    if (personKey) paidPeople[personKey] = true;
+  });
+  const openDeadlines = (deadlines || []).filter(function(d) { return d.status === 'Da pagare' || d.status === 'Scaduta'; });
+  const duePeople = {};
+  const outstanding = openDeadlines.reduce(function(sum, d) {
+    const personKey = str_(d.personId) || str_(d.name);
+    if (personKey) duePeople[personKey] = true;
+    return sum + num_(d.amount);
+  }, 0);
+  return {
+    totalExpected: received + outstanding,
+    received: received,
+    outstanding: outstanding,
+    paidPeople: Object.keys(paidPeople).length,
+    duePeople: Object.keys(duePeople).length,
+    openDeadlines: openDeadlines.length
+  };
+}
 
 function sheet_(name){const sh=SpreadsheetApp.openById(ADMIN.spreadsheetId).getSheetByName(name);if(!sh)throw new Error('Foglio mancante: '+name);return sh;}
 function headers_(sh){return sh.getRange(1,1,1,sh.getLastColumn()).getValues()[0].map(str_);}
