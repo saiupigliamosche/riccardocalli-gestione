@@ -3,6 +3,7 @@ CONFIG.VERSION="0.16.0";
 const FINANCE_DEFAULT="Fattura";
 const FINANCE_EXCEPTION="Eccezione";
 const ENTRY_PAYMENT_PRESETS={"Ingresso singolo":15,"Carnet 5 ingressi":60,"Carnet 10 ingressi":110};
+const MEMBER_PLAN_OPTIONS=[["Annuale","Annuale"],["3 rate","3 rate"],["Mese di prova","Mese di prova"],["Ingresso singolo","Ingresso singolo · 15 €"],["Carnet 5 ingressi","Carnet 5 ingressi · 60 €"],["Carnet 10 ingressi","Carnet 10 ingressi · 110 €"]];
 const now=new Date();
 const state={view:"home",today:null,trials:[],members:[],payments:[],paymentSummary:null,finance:[],financeSummary:null,lessons:[],dashboard:null,portal:{deadlines:[],documents:[],rsvps:[]},monthYear:now.getFullYear(),monthIndex:now.getMonth(),selectedDate:null};
 const memberDirectory={filter:"Attivo",query:""};
@@ -666,7 +667,7 @@ function convertTrial(id){
   trialDraft={id,frequency:"1",day:"Martedì",plan:"Annuale",payment:"No",method:"Contanti"};
   const body=trialChoiceGroup("Frequenza","frequency",[["1","1× settimana"],["2","2× settimana"]],"1")+
     '<div id="trialDayGroup">'+trialChoiceGroup("Giorno","day",[["Martedì","Martedì"],["Giovedì","Giovedì"]],"Martedì")+'</div>'+
-    trialChoiceGroup("Pacchetto","plan",[["Annuale","Annuale"],["3 rate","3 rate"],["Mese di prova","Mese di prova"]],"Annuale")+
+    trialChoiceGroup("Pacchetto","plan",MEMBER_PLAN_OPTIONS,"Annuale")+
     trialChoiceGroup("Pagamento","payment",[["No","Non pagato"],["Sì","Pagato ora"]],"No")+
     '<div id="trialMethodGroup" style="display:none">'+trialChoiceGroup("Metodo","method",[["Contanti","Contanti"],["Bonifico","Bonifico"],["PayPal","PayPal"],["Altro","Altro"]],"Contanti")+'</div>'+
     '<div id="trialAmountNote" class="amount-note">Importo se pagato ora: '+money(trialAmount())+'</div>';
@@ -689,6 +690,7 @@ function chooseTrialOption(group,value,btn){
 }
 function trialAmount(){
   const f=trialDraft.frequency,p=trialDraft.plan;
+  if(ENTRY_PAYMENT_PRESETS[p])return ENTRY_PAYMENT_PRESETS[p];
   if(p==="Annuale")return f==="2"?480:290;
   if(p==="3 rate")return f==="2"?165:110;
   return f==="2"?60:45;
@@ -718,7 +720,7 @@ function newMember(){
     '<label class="field-label">Età</label><select id="memberAge" class="big-select">'+ages+'</select>'+
     choiceGroup("Frequenza","frequency",[["1","1× settimana"],["2","2× settimana"]],"2")+
     '<div id="memberDayGroup" style="display:none">'+choiceGroup("Giorno","day",[["Martedì","Martedì"],["Giovedì","Giovedì"]],"Martedì")+'</div>'+
-    choiceGroup("Pacchetto","plan",[["Annuale","Annuale"],["3 rate","3 rate"],["Mese di prova","Mese di prova"]],"Annuale")+
+    choiceGroup("Pacchetto","plan",MEMBER_PLAN_OPTIONS,"Annuale")+
     choiceGroup("Pagamento","payment",[["No","Non pagato"],["Sì","Pagato ora"]],"No")+
     '<div id="memberMethodGroup" style="display:none">'+choiceGroup("Metodo","method",[["Contanti","Contanti"],["Bonifico","Bonifico"],["PayPal","PayPal"],["Altro","Altro"]],"Contanti")+'</div>';
   openModal({id:"memberModal",eyebrow:"NUOVO ISCRITTO",title:"Aggiungi persona",body,actions:'<button class="primary modal-save" onclick="saveMember()">SALVA ISCRITTO</button>'});
@@ -742,6 +744,7 @@ function chooseMemberOption(group,value,btn){
 function closeMemberModal(){closeModal("memberModal")}
 function memberAmount(){
   const f=memberDraft.frequency, p=memberDraft.plan;
+  if(ENTRY_PAYMENT_PRESETS[p])return ENTRY_PAYMENT_PRESETS[p];
   if(p==="Annuale")return f==="2"?480:290;
   if(p==="3 rate")return f==="2"?165:110;
   return f==="2"?60:45;
@@ -880,7 +883,7 @@ function editMember(id){
     '<label class="field-label">Email</label><input id="editEmail" class="big-input" type="email" autocomplete="email" value="'+esc(m.email||"")+'">'+
     editChoiceGroup("Frequenza","frequency",[["1","1× settimana"],["2","2× settimana"]],editDraft.frequency)+
     '<div id="editDayGroup" style="display:'+(editDraft.frequency==="1"?'block':'none')+'">'+editChoiceGroup("Giorno","day",[["Martedì","Martedì"],["Giovedì","Giovedì"]],editDraft.day)+'</div>'+
-    editChoiceGroup("Pacchetto","plan",[["Annuale","Annuale"],["3 rate","3 rate"],["Mese di prova","Mese di prova"]],editDraft.plan)+
+    editChoiceGroup("Pacchetto","plan",MEMBER_PLAN_OPTIONS,editDraft.plan)+
     editChoiceGroup("Stato","status",[["Attivo","Attivo"],["In pausa","In pausa"],["Uscito","Uscito"]],editDraft.status)+
     (!isArchivedMember(m)?'<button type="button" class="member-delete" onclick="confirmMemberDelete(\''+esc(m.id)+'\')">ELIMINA ISCRITTO</button>':'');
   openModal({id:"memberEditModal",eyebrow:"MODIFICA ISCRITTO",title:esc(m.name),body,actions:'<button class="secondary" onclick="closeModal(\'memberEditModal\')">ANNULLA</button><button class="primary edit-save" onclick="saveMemberEdit()">SALVA</button>'});
@@ -954,9 +957,9 @@ async function saveMemberEdit(){
   const frequency=editDraft.frequency==="2"?"2x/settimana - Martedì+Giovedì":"1x/settimana - "+editDraft.day;
   const btn=document.querySelector(".edit-save");btn.disabled=true;btn.textContent="SALVATAGGIO…";
   try{
-    await api("updateMember",{personId:editDraft.id,name,age,phone,email,frequency,plan:editDraft.plan,status:editDraft.status});
+    const out=await api("updateMember",{personId:editDraft.id,name,age,phone,email,frequency,plan:editDraft.plan,status:editDraft.status});
     closeModal("memberEditModal");
-    toast("Dati aggiornati");
+    toast(ENTRY_PAYMENT_PRESETS[editDraft.plan] ? "Piano carnet aggiornato · registra il pagamento" : "Dati aggiornati");
     await loadAll();
     state.view="members";
     render();

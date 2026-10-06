@@ -849,14 +849,17 @@ function updateMember_(d) {
     setCellByHeader_(sh,i+1,headers,'Email',clean_(d.email));
     setCellByHeader_(sh,i+1,headers,'Frequenza',clean_(d.frequency));
     setCellByHeader_(sh,i+1,headers,'Pacchetto',clean_(d.plan));
-    setCellByHeader_(sh,i+1,headers,'Stato',clean_(d.status)||'Attivo');
-    setCellByHeader_(sh,i+1,headers,'Ultimo aggiornamento',new Date());
-    if(clean_(d.status)==='Uscito') setCellByHeader_(sh,i+1,headers,'Data uscita',new Date());
+      setCellByHeader_(sh,i+1,headers,'Stato',clean_(d.status)||'Attivo');
+      setCellByHeader_(sh,i+1,headers,'Ultimo aggiornamento',new Date());
+      if(clean_(d.status)==='Uscito') setCellByHeader_(sh,i+1,headers,'Data uscita',new Date());
     if(clean_(d.status)==='Attivo'){
       setCellByHeader_(sh,i+1,headers,'Data uscita','');
-      setCellByHeader_(sh,i+1,headers,'Motivo uscita','');
-    }
-    return {ok:true};
+        setCellByHeader_(sh,i+1,headers,'Motivo uscita','');
+      }
+      const updated = findMember_(id, true);
+      if (updated && typeof syncMemberPlanDeadlines_ === 'function') syncMemberPlanDeadlines_(updated);
+      SpreadsheetApp.flush();
+      return {ok:true, personId:id, plan:updated ? updated.plan : clean_(d.plan), entryPlan:updated ? isEntryPlan_(updated.plan) : false};
   }
   throw new Error('Iscritto non trovato.');
 }

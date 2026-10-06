@@ -340,8 +340,12 @@ function ensureAllMemberDeadlines_() {
 
 function ensureMemberDeadlines_(member) {
   if (!member || !member.id) return;
+  if (isEntryPlan_(member.plan)) {
+    syncMemberPlanDeadlines_(member);
+    return;
+  }
   const existing = table_(sheet_(ADMIN.sheets.deadlines)).filter(function(r) { return str_(r['Persona ID']) === member.id; });
-  if (existing.length) return;
+  if (existing.some(function(r) { return str_(r['Stato']) !== 'Annullata'; })) return;
   const plan = str_(member.plan).toLowerCase(), twice = /^2/.test(str_(member.frequency));
   let definitions = [];
   if (plan.indexOf('3 rate') >= 0) {
@@ -363,6 +367,24 @@ function ensureMemberDeadlines_(member) {
       'Ultimo aggiornamento': new Date()
     });
   });
+}
+
+function isEntryPlan_(plan) {
+  return !!entryPassDefinition_(plan);
+}
+
+function syncMemberPlanDeadlines_(member) {
+  if (!member || !member.id || !isEntryPlan_(member.plan)) return;
+  const sh = sheet_(ADMIN.sheets.deadlines), h = headers_(sh), rows = sh.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    const r = rowObj_(h, rows[i]);
+    if (str_(r['Persona ID']) !== member.id || ['Pagata','Annullata'].indexOf(str_(r['Stato'])) >= 0) continue;
+    const previousNote = str_(r['Note']);
+    const note = previousNote.indexOf('Piano convertito a carnet') >= 0 ? previousNote : (previousNote ? previousNote + ' · ' : '') + 'Piano convertito a carnet';
+    setCellByHeader_(sh, i + 1, h, 'Stato', 'Annullata');
+    setCellByHeader_(sh, i + 1, h, 'Note', note);
+    setCellByHeader_(sh, i + 1, h, 'Ultimo aggiornamento', new Date());
+  }
 }
 
 function installmentDates_() {
