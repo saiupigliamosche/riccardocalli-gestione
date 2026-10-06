@@ -1,5 +1,5 @@
 const CONFIG={VERSION:"0.15.2",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",ENROLLMENT_FORM:"https://form.jotform.com/262643062831050",SEASON_START:"2026-10-01",SEASON_END:"2027-06-09"};
-CONFIG.VERSION="0.16.0";
+CONFIG.VERSION="0.17.0";
 const FINANCE_DEFAULT="Fattura";
 const FINANCE_EXCEPTION="Eccezione";
 const ENTRY_PAYMENT_PRESETS={"Ingresso singolo":15,"Carnet 5 ingressi":60,"Carnet 10 ingressi":110};
