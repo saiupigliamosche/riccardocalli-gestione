@@ -788,7 +788,8 @@ function sendRsvpNotifications_(key, hour) {
   for (let i=1;i<rows.length;i++) {
     const r = rowObj_(h,rows[i]);
     if (dateKey_(r['Data lezione']) !== key || str_(r['Previsto']) === 'No') continue;
-    if (hour === 16 && str_(r['Risposta']) !== 'In attesa') continue;
+    // Dopo una risposta esplicita (Sì o No) non inviare più alcun promemoria RSVP.
+    if ((str_(r['Risposta']) || 'In attesa') !== 'In attesa') continue;
     const flag = hour === 9 ? 'Notifica 09' : 'Promemoria 16';
     if (r[flag]) continue;
     const member = findMember_(str_(r['Persona ID']),true);
