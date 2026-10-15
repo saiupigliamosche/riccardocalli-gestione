@@ -1,5 +1,5 @@
 const CONFIG={VERSION:"0.15.2",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",ENROLLMENT_FORM:"https://form.jotform.com/262643062831050",SEASON_START:"2026-10-01",SEASON_END:"2027-06-09"};
-CONFIG.VERSION="0.18.0";
+CONFIG.VERSION="0.19.0";
 const FINANCE_DEFAULT="Fattura";
 const FINANCE_EXCEPTION="Eccezione";
 const ENTRY_PAYMENT_PRESETS={"Ingresso singolo":15,"Carnet 5 ingressi":60,"Carnet 10 ingressi":110};
@@ -55,6 +55,10 @@ function setLessonConfirmed(date,value){const c=confirmedLessons();if(value)c[da
 function extraAttendance(){try{return JSON.parse(localStorage.getItem("parkour_extra_attendance")||"{}")}catch(_){return{}}}
 function extraIds(date){return extraAttendance()[date]||[]}
 function setExtraId(date,id,on=true){const c=extraAttendance();const s=new Set(c[date]||[]);on?s.add(id):s.delete(id);c[date]=[...s];localStorage.setItem("parkour_extra_attendance",JSON.stringify(c))}
+function memberHasActiveEntryPassOnDate(member,key){
+  if(!isEntryMemberPlan(member?.plan))return false;
+  return (state.payments||[]).some(p=>p.personId===member.id&&Number(p.entriesRemaining||0)>0&&(!p.date||p.date<=key));
+}
 
 let modalReturnFocus=null;
 function modalShell({id,eyebrow,title,body="",actions="",className=""}){
@@ -175,6 +179,7 @@ function expectedMembersForSelectedDate(key){
   const todayById=(key===todayKey()&&state.today)?new Map((state.today.members||[]).map(x=>[x.id,x])):null;
   return (state.members||[]).filter(m=>{
     if((m.status||"Attivo")!=="Attivo")return false;
+    if(isEntryMemberPlan(m.plan))return memberHasActiveEntryPassOnDate(m,key)||extras.has(m.id);
     const f=String(m.frequency||"").toLowerCase();
     const scheduled=f.includes("2") ||
       (day===2 && (f.includes("martedì")||f.includes("martedi"))) ||
@@ -252,7 +257,10 @@ function memberDisplayStatus(member){return isArchivedMember(member)?"Eliminato"
 function memberStatusClass(status){return status==="Eliminato"||status==="Uscito"?"danger":status==="Sospeso"||status==="In pausa"?"trial":"ok"}
 function memberPlanShort(p){
   const plan=String(p.plan||"").toLowerCase();
-  if(isEntryMemberPlan(p.plan))return String(p.plan);
+  if(isEntryMemberPlan(p.plan)){
+    const remaining=Number(p.entryPassRemaining||0),total=Number(p.entryPassTotal||0);
+    return String(p.plan)+(total?" · "+remaining+"/"+total+" ingressi":"");
+  }
   const freq=String(p.frequency||"").toLowerCase();
   const freqLabel=freq.includes("2")?"2×":freq.includes("giov")?"1× Gio":freq.includes("mart")?"1× Mar":"1×";
   let planLabel="Piano non impostato";
@@ -261,9 +269,14 @@ function memberPlanShort(p){
   else if(plan.includes("mese di prova"))planLabel="Mese prova";
   return freqLabel+" · "+planLabel;
 }
+function memberAttendanceShort(p){
+  const total=Number(p.attendanceTotal||0),present=Number(p.attendancePresent||0),absent=Number(p.attendanceAbsent||0);
+  if(!total)return "Presenze: nessun dato";
+  return "Presenze "+present+"/"+total+" · assenze "+absent+" · "+(p.attendanceStatus||"Nessun dato");
+}
 function memberRowHtml(p){
   const displayStatus=memberDisplayStatus(p);
-  const search=[p.name,displayStatus,p.plan,p.frequency].filter(Boolean).join(" ").toLowerCase();
+  const search=[p.name,displayStatus,p.plan,p.frequency,p.attendanceStatus,memberAttendanceShort(p)].filter(Boolean).join(" ").toLowerCase();
   const freq=String(p.frequency||"").toLowerCase();
   const freqKey=isEntryMemberPlan(p.plan)?"entry":freq.includes("2")?"2x":"1x";
   const canSend=displayStatus==="Attivo"&&!!String(p.email||"").trim();
@@ -271,7 +284,7 @@ function memberRowHtml(p){
   const sendTitle=canSend?"Invia il link di accesso all’app a "+p.name:displayStatus!=="Attivo"?"L’area personale è disponibile solo per gli iscritti attivi":"Aggiungi un’email valida per inviare il link";
   return '<div class="member-row" data-member-row data-status="'+esc(displayStatus)+'" data-frequency="'+freqKey+'" data-search="'+esc(search)+'">'+
     '<button type="button" class="member-row-open" onclick="memberDetail(\''+esc(p.id)+'\')">'+
-      '<span class="member-row-main"><span class="person-name">'+esc(p.name)+'</span><span class="person-sub">'+esc(memberPlanShort(p))+'</span></span>'+
+      '<span class="member-row-main"><span class="person-name">'+esc(p.name)+'</span><span class="person-sub">'+esc(memberPlanShort(p))+'</span><span class="member-attendance-sub">'+esc(memberAttendanceShort(p))+'</span></span>'+
       '<span class="member-row-end"><span class="member-status-dot '+memberStatusClass(displayStatus)+'" aria-hidden="true"></span><span class="member-status-text">'+esc(displayStatus)+'</span><span class="member-chevron" aria-hidden="true">›</span></span>'+
     '</button>'+
     '<button type="button" class="member-link-send" title="'+esc(sendTitle)+'" aria-label="'+esc(sendTitle)+'" onclick="sendPortalInvite(\''+esc(p.id)+'\',this)"'+(canSend?'':' disabled')+'>'+sendLabel+'</button></div>';
@@ -438,13 +451,16 @@ function renderDashboard(){
   if(!backend()||!token()){viewEl.innerHTML=connectionCard();return}
   const d=state.dashboard||{};
   const course=[["Iscritti attivi",d.activeMembers??"—"],["2× a settimana",d.membersTwiceWeekly??"—"],["1× a settimana",d.membersOnceWeekly??"—"],["Prove prenotate",d.bookings??"—"]];
+  const attendance=d.attendance||{};
+  const attendanceRate=attendance.total?Math.round(Number(attendance.rate||0)*100)+"%":"—";
+  const attendanceCards=[["Presenze registrate",attendance.present??"—","segnate nel registro"],["Assenze registrate",attendance.absent??"—","conteggio informativo"],["Tasso di presenza",attendanceRate,"su tutte le presenze registrate"],["Recuperi informativi",attendance.recoveryCount??"—","assenze da valutare"]];
   const finance=[["Netto stagione",d.netRevenue!=null?money(d.netRevenue):"—","Incasso al netto di tasse e bolli","total"],["Incasso mese corrente",d.currentMonthRevenue!=null?money(d.currentMonthRevenue):"—",""],["Media mensile",d.averageMonthlyNet!=null?money(d.averageMonthlyNet):(d.averageMonthlyRevenue!=null?money(d.averageMonthlyRevenue):"—"),"Netto ÷ 9 mesi"],["Incasso stagione",d.revenue!=null?money(d.revenue):"—","Totale registrato"],["Tasse stimate",d.taxRevenue!=null?money(d.taxRevenue):"—","78% × 31% + 2 € per pagamento"]];
   const cards=items=>items.map(x=>'<div class="kpi dashboard-kpi '+(x[3]==="total"?'dashboard-total':'')+'"><strong>'+x[1]+'</strong><span>'+x[0]+'</span>'+(x[2]?'<small>'+x[2]+'</small>':'')+'</div>').join("");
+  const attendanceSection='<section class="dashboard-section"><div class="section-head"><div><h2>Presenze</h2><small>Riepilogo del registro; i recuperi sono solo informativi</small></div></div><div class="dashboard-grid">'+cards(attendanceCards)+'</div><div class="dashboard-attendance-note">'+esc((attendance.trackedMembers??0)+" iscritti con almeno una presenza registrata · "+(attendance.membersWithAbsences??0)+" con almeno un’assenza · "+(attendance.lowAttendanceMembers??0)+" a bassa presenza")+'</div></section>';
   const automation=state.portal?.automationActive?'<div class="automation-status active"><strong>Automazioni area iscritti attive</strong><span>Email presenza alle 09:00, promemoria alle 16:00 e avvisi pagamento.</span></div>':'<div class="automation-status"><strong>Automazioni non ancora attive</strong><span>Attivale una volta per programmare email e promemoria.</span><button class="primary" onclick="activatePortalAutomation()">ATTIVA AUTOMAZIONI</button></div>';
   const fs=d.finance||state.financeSummary||{};
   const financeSection='<section class="dashboard-section"><div class="section-head"><div><h2>Controllo finanze</h2><small>Formula: importo lordo × 78% × 31% + 2 € marca da bollo</small></div><button class="secondary inline-action" onclick="state.view=\'finance\';render()">APRI</button></div><div class="finance-alert-grid"><div><strong>'+esc(fs.toClassify??0)+'</strong><span>Eccezioni fiscali</span></div><div><strong>'+esc(fs.taxesToMove??0)+'</strong><span>Tasse da spostare</span></div><div><strong>'+esc(fs.invoiceDue??0)+'</strong><span>Fatture da fare</span></div></div></section>';
-  const nextDate=nextRsvpDate(),confirmations=nextDate?'<section class="dashboard-section"><div class="section-head"><div><h2>Conferme prossima lezione</h2><small>'+esc(fmtDate(nextDate))+'</small></div></div>'+rsvpAdminSummary(nextDate)+'</section>':'';
-  viewEl.innerHTML=confirmations+'<section class="dashboard-section"><div class="section-head"><h2>Corso</h2></div><div class="dashboard-grid">'+cards(course)+'</div></section><section class="dashboard-section"><div class="section-head"><h2>Economia</h2></div><div class="dashboard-grid dashboard-finance">'+cards(finance)+'</div></section>'+financeSection+'<section class="dashboard-section"><div class="section-head"><h2>Area iscritti</h2></div>'+automation+'</section><div class="actions"><button class="secondary" onclick="disconnectBackend()">DISCONNETTI QUESTO DISPOSITIVO</button></div>';
+  viewEl.innerHTML='<section class="dashboard-section"><div class="section-head"><h2>Corso</h2></div><div class="dashboard-grid">'+cards(course)+'</div></section>'+attendanceSection+'<section class="dashboard-section"><div class="section-head"><h2>Economia</h2></div><div class="dashboard-grid dashboard-finance">'+cards(finance)+'</div></section>'+financeSection+'<section class="dashboard-section"><div class="section-head"><h2>Area iscritti</h2></div>'+automation+'</section><div class="actions"><button class="secondary" onclick="disconnectBackend()">DISCONNETTI QUESTO DISPOSITIVO</button></div>';
 }
 async function activatePortalAutomation(){
   showConfirm({eyebrow:"AUTOMAZIONI",title:"Attiva notifiche email",message:"Verrà creato un controllo orario che invia le richieste di conferma nei giorni di corso e i promemoria delle scadenze.",confirmLabel:"ATTIVA",onConfirm:async()=>{try{await api("installPortalAutomation");toast("Automazioni attivate");await loadAll()}catch(e){showError(e.message,"Automazioni non attivate")}}});
@@ -826,12 +842,17 @@ function memberDetail(id){
   const documents=(state.portal?.documents||[]).filter(x=>x.personId===id);
   const next=deadlines.slice().sort((a,b)=>String(a.dueDate).localeCompare(String(b.dueDate)))[0];
   const frequencyDetail=isEntryMemberPlan(m.plan)?'':'<div class="detail-item"><span>Frequenza</span><strong>'+value(m.frequency)+'</strong></div>';
+  const attendanceTotal=Number(m.attendanceTotal||0),attendancePresent=Number(m.attendancePresent||0),attendanceAbsent=Number(m.attendanceAbsent||0);
+  const attendanceRate=attendanceTotal?Math.round((Number(m.attendanceRate||0))*100)+"%":"—";
   const body='<div class="detail-grid">'+
       '<div class="detail-item"><span>Età</span><strong>'+value(m.age)+'</strong></div>'+
       '<div class="detail-item"><span>Stato</span><strong>'+value(memberDisplayStatus(m))+'</strong></div>'+
       '<div class="detail-item"><span>Pacchetto</span><strong>'+value(m.plan)+'</strong></div>'+
       frequencyDetail+
       '<div class="detail-item"><span>Ultima presenza</span><strong>'+(m.lastAttendance?esc(fmtDate(m.lastAttendance)):"—")+'</strong></div>'+
+      '<div class="detail-item"><span>Presenze</span><strong>'+attendancePresent+'/'+attendanceTotal+'</strong></div>'+
+      '<div class="detail-item"><span>Assenze / recuperi informativi</span><strong>'+attendanceAbsent+'</strong></div>'+
+      '<div class="detail-item"><span>Stato presenze</span><strong>'+esc(m.attendanceStatus||"Nessun dato")+' · '+attendanceRate+'</strong></div>'+
       '<div class="detail-item"><span>Rischio drop</span><strong>'+value(m.risk)+'</strong></div>'+
       '<div class="detail-item wide"><span>Telefono</span><strong>'+value(m.phone)+'</strong></div>'+
       '<div class="detail-item wide"><span>Email</span><strong>'+value(m.email)+'</strong></div>'+

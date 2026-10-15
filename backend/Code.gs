@@ -41,7 +41,7 @@ const ENTRY_PASSES = {
 };
 
 function doGet() {
-  return json_({ ok: true, service: 'Parkour Course OS API', version: '1.11.0' });
+  return json_({ ok: true, service: 'Parkour Course OS API', version: '1.12.0' });
 }
 
 function doPost(e) {
@@ -187,10 +187,15 @@ function trialList_() {
 
 function memberList_() {
   const rows = table_(sheet_(ADMIN.sheets.members));
+  const attendanceStats = attendanceStatsByMember_();
+  const entryBalances = entryPassBalanceByMember_();
   return rows.map(r => {
     const plan = str_(r['Pacchetto']);
+    const id = str_(r['Persona ID']);
+    const attendance = attendanceStats[id] || emptyAttendanceStats_();
+    const entryBalance = entryBalances[id] || { total: 0, used: 0, remaining: 0 };
     return {
-      id: str_(r['Persona ID']),
+      id: id,
       name: str_(r['Nome e cognome']),
       age: num_(r['Età']),
       phone: str_(r['Telefono']),
@@ -205,11 +210,67 @@ function memberList_() {
       attendance30: num_(r['Presenze 30gg']),
       consecutiveAbsences: num_(r['Assenze consecutive']),
       risk: str_(r['Rischio drop']),
+      attendanceTotal: attendance.total,
+      attendancePresent: attendance.present,
+      attendanceAbsent: attendance.absent,
+      attendanceRate: attendance.rate,
+      attendanceStatus: attendance.status,
+      recoveryCount: attendance.absent,
+      entryPassTotal: entryBalance.total,
+      entryPassUsed: entryBalance.used,
+      entryPassRemaining: entryBalance.remaining,
       origin: str_(r['Origine acquisizione']),
       campaign: str_(r['Campagna acquisizione']),
       creative: str_(r['Creatività acquisizione'])
     };
   }).filter(x => x.name);
+}
+
+function emptyAttendanceStats_() {
+  return { total: 0, present: 0, absent: 0, rate: 0, status: 'Nessun dato' };
+}
+
+function attendanceStatsByMember_() {
+  const out = {};
+  table_(sheet_(ADMIN.sheets.attendance)).forEach(function(r) {
+    if (str_(r['Tipo']) !== 'Iscritto') return;
+    const id = str_(r['Persona ID']);
+    if (!id) return;
+    const stats = out[id] || { total: 0, present: 0, absent: 0 };
+    stats.total++;
+    if (str_(r['Presente']) === 'Sì') stats.present++;
+    else stats.absent++;
+    out[id] = stats;
+  });
+  Object.keys(out).forEach(function(id) {
+    const stats = out[id];
+    stats.rate = stats.total ? stats.present / stats.total : 0;
+    stats.status = attendanceStatus_(stats);
+  });
+  return out;
+}
+
+function attendanceStatus_(stats) {
+  if (!stats || !stats.total) return 'Nessun dato';
+  const rate = Number(stats.rate || 0);
+  if (rate >= 0.8) return 'Regolare';
+  if (rate >= 0.6) return 'Da monitorare';
+  return 'Bassa presenza';
+}
+
+function entryPassBalanceByMember_() {
+  const out = {};
+  paymentRows_().forEach(function(row) {
+    if (!entryPassDefinition_(row['Tipo pagamento'])) return;
+    const id = str_(row['Persona ID']);
+    if (!id) return;
+    const stats = entryPassStats_(row), current = out[id] || { total: 0, used: 0, remaining: 0 };
+    current.total += stats.total;
+    current.used += stats.used;
+    current.remaining += stats.remaining;
+    out[id] = current;
+  });
+  return out;
 }
 
 function paymentList_(rows) {
@@ -243,9 +304,10 @@ function entryPassDefinition_(type) {
 
 function entryPassStats_(row) {
   const definition = entryPassDefinition_(row && row['Tipo pagamento']);
-  const total = num_(row && row['Ingressi totali']) || (definition ? definition.total : 0);
+  const configuredTotal = num_(row && row['Ingressi totali']);
+  const total = configuredTotal > 0 ? Math.floor(configuredTotal) : (definition ? definition.total : 0);
   if (!total) return { total: 0, used: 0, remaining: 0, halfAlert: str_(row && row['Avviso metà ingressi']), lastAlert: str_(row && row['Avviso ultima entrata']) };
-  const used = Math.max(0, Math.min(total, num_(row && row['Ingressi utilizzati'])));
+  const used = Math.max(0, Math.min(total, Math.floor(num_(row && row['Ingressi utilizzati']))));
   return {
     total: total,
     used: used,
@@ -294,6 +356,10 @@ function dashboard_(memberRows, trialRows, paymentRows, financeRows) {
   const currentMonthRevenue = payments.filter(p => p.month === currentMonth).reduce((s,p) => s + num_(p.amount),0);
   const taxRevenue = finance.reduce((s, x) => s + financeTaxAmount_(x.amount), 0);
   const netRevenue = revenue - taxRevenue;
+  const attendanceMembers = active.filter(x => num_(x.attendanceTotal) > 0);
+  const attendanceTotal = attendanceMembers.reduce((s, x) => s + num_(x.attendanceTotal), 0);
+  const attendancePresent = attendanceMembers.reduce((s, x) => s + num_(x.attendancePresent), 0);
+  const attendanceAbsent = attendanceMembers.reduce((s, x) => s + num_(x.attendanceAbsent), 0);
 
   return {
     activeMembers,
@@ -306,7 +372,17 @@ function dashboard_(memberRows, trialRows, paymentRows, financeRows) {
     averageMonthlyNet: netRevenue / 9,
     netRevenue,
     taxRevenue,
-    finance: financeSummary
+    finance: financeSummary,
+    attendance: {
+      total: attendanceTotal,
+      present: attendancePresent,
+      absent: attendanceAbsent,
+      rate: attendanceTotal ? attendancePresent / attendanceTotal : 0,
+      trackedMembers: attendanceMembers.length,
+      membersWithAbsences: active.filter(x => num_(x.attendanceAbsent) > 0).length,
+      lowAttendanceMembers: active.filter(x => x.attendanceStatus === 'Bassa presenza').length,
+      recoveryCount: attendanceAbsent
+    }
   };
 }
 

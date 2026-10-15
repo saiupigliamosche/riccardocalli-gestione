@@ -769,11 +769,20 @@ function findRsvpRowIndex_(rows, headers, key, personId) {
 
 function scheduledForMember_(member, key) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return false;
-  const day = parseKey_(key).getDay(), frequency = str_(member.frequency).toLowerCase();
+  const date = parseKey_(key);
+  if (entryPassDefinition_(member.plan)) return isCourseDay_(date) && memberHasActiveEntryPass_(member, key);
+  const day = date.getDay(), frequency = str_(member.frequency).toLowerCase();
   if (frequency.indexOf('2') === 0 || frequency.indexOf('2x') >= 0 || frequency.indexOf('2×') >= 0) return day === 2 || day === 4;
   if (day === 2) return frequency.indexOf('mart') >= 0;
   if (day === 4) return frequency.indexOf('giov') >= 0;
   return false;
+}
+
+function memberHasActiveEntryPass_(member, lessonKey) {
+  if (!member || !entryPassDefinition_(member.plan)) return false;
+  return entryPaymentCandidates_(member.id, lessonKey || '').some(function(item) {
+    return entryPassStats_(item.row).remaining > 0;
+  });
 }
 
 function nextScheduledLessonForMember_(member, start) {
