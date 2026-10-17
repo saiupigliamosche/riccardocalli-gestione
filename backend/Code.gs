@@ -41,7 +41,7 @@ const ENTRY_PASSES = {
 };
 
 function doGet() {
-  return json_({ ok: true, service: 'Parkour Course OS API', version: '1.12.0' });
+  return json_({ ok: true, service: 'Parkour Course OS API', version: '1.13.0' });
 }
 
 function doPost(e) {
@@ -258,6 +258,43 @@ function attendanceStatus_(stats) {
   return 'Bassa presenza';
 }
 
+function attendanceMonthlyStats_() {
+  const byMonth = {};
+  table_(sheet_(ADMIN.sheets.attendance)).forEach(function(r) {
+    if (str_(r['Tipo']) !== 'Iscritto') return;
+    const key = dateKey_(r['Data lezione']);
+    const month = key.slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(month)) return;
+    const stats = byMonth[month] || { month: month, total: 0, present: 0, absent: 0 };
+    stats.total++;
+    if (str_(r['Presente']) === 'Sì') stats.present++;
+    else stats.absent++;
+    byMonth[month] = stats;
+  });
+  const months = Object.keys(byMonth).sort().map(function(month) {
+    const stats = byMonth[month];
+    stats.rate = stats.total ? stats.present / stats.total : 0;
+    return stats;
+  });
+  const currentKey = Utilities.formatDate(new Date(), ADMIN.timezone, 'yyyy-MM');
+  const current = months.find(function(item) { return item.month === currentKey; }) || {
+    month: currentKey,
+    total: 0,
+    present: 0,
+    absent: 0,
+    rate: 0
+  };
+  const ranked = months.filter(function(item) { return item.total > 0; }).slice().sort(function(a, b) {
+    return a.rate - b.rate || a.month.localeCompare(b.month);
+  });
+  return {
+    current: current,
+    worst: ranked.length ? ranked[0] : null,
+    best: ranked.length ? ranked[ranked.length - 1] : null,
+    months: months
+  };
+}
+
 function entryPassBalanceByMember_() {
   const out = {};
   paymentRows_().forEach(function(row) {
@@ -360,6 +397,7 @@ function dashboard_(memberRows, trialRows, paymentRows, financeRows) {
   const attendanceTotal = attendanceMembers.reduce((s, x) => s + num_(x.attendanceTotal), 0);
   const attendancePresent = attendanceMembers.reduce((s, x) => s + num_(x.attendancePresent), 0);
   const attendanceAbsent = attendanceMembers.reduce((s, x) => s + num_(x.attendanceAbsent), 0);
+  const attendanceMonthly = attendanceMonthlyStats_();
 
   return {
     activeMembers,
@@ -381,7 +419,11 @@ function dashboard_(memberRows, trialRows, paymentRows, financeRows) {
       trackedMembers: attendanceMembers.length,
       membersWithAbsences: active.filter(x => num_(x.attendanceAbsent) > 0).length,
       lowAttendanceMembers: active.filter(x => x.attendanceStatus === 'Bassa presenza').length,
-      recoveryCount: attendanceAbsent
+      recoveryCount: attendanceAbsent,
+      currentMonth: attendanceMonthly.current,
+      worstMonth: attendanceMonthly.worst,
+      bestMonth: attendanceMonthly.best,
+      monthly: attendanceMonthly.months
     }
   };
 }

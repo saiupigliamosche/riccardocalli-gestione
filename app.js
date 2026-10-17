@@ -1,5 +1,5 @@
 const CONFIG={VERSION:"0.15.2",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",ENROLLMENT_FORM:"https://form.jotform.com/262643062831050",SEASON_START:"2026-10-01",SEASON_END:"2027-06-09"};
-CONFIG.VERSION="0.19.0";
+CONFIG.VERSION="0.20.0";
 const FINANCE_DEFAULT="Fattura";
 const FINANCE_EXCEPTION="Eccezione";
 const ENTRY_PAYMENT_PRESETS={"Ingresso singolo":15,"Carnet 5 ingressi":60,"Carnet 10 ingressi":110};
@@ -45,6 +45,9 @@ function esc(s=""){return String(s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt
 function initials(n=""){return n.split(/\s+/).filter(Boolean).slice(0,2).map(x=>x[0]?.toUpperCase()).join("")||"?"}
 function fmtDate(v){if(!v)return"—";const d=new Date(String(v).length===10?v+"T12:00:00":v);return new Intl.DateTimeFormat("it-IT",{weekday:"long",day:"numeric",month:"long",year:"numeric"}).format(d)}
 function money(v){return new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR"}).format(Number(v||0))}
+function attendanceMonthLabel(value){if(!value)return"—";const parts=String(value).split("-");if(parts.length!==2)return String(value);return new Intl.DateTimeFormat("it-IT",{month:"long",year:"numeric"}).format(new Date(Number(parts[0]),Number(parts[1])-1,1))}
+function attendanceRateLabel(stat){return stat&&Number(stat.total||0)>0?Math.round(Number(stat.rate||0)*100)+"%":"—"}
+function attendanceMonthDetail(stat){if(!stat)return"nessun dato";const label=attendanceMonthLabel(stat.month);return Number(stat.total||0)>0?label+" · "+Number(stat.present||0)+"/"+Number(stat.total||0)+" presenze":label+" · nessun dato"}
 function dateKey(d){const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,"0"),day=String(d.getDate()).padStart(2,"0");return y+"-"+m+"-"+day}
 function todayKey(){return dateKey(new Date())}
 function attendanceCache(){try{return JSON.parse(localStorage.getItem("parkour_attendance_cache")||"{}")}catch(_){return{}}}
@@ -453,10 +456,11 @@ function renderDashboard(){
   const course=[["Iscritti attivi",d.activeMembers??"—"],["2× a settimana",d.membersTwiceWeekly??"—"],["1× a settimana",d.membersOnceWeekly??"—"],["Prove prenotate",d.bookings??"—"]];
   const attendance=d.attendance||{};
   const attendanceRate=attendance.total?Math.round(Number(attendance.rate||0)*100)+"%":"—";
-  const attendanceCards=[["Presenze registrate",attendance.present??"—","segnate nel registro"],["Assenze registrate",attendance.absent??"—","conteggio informativo"],["Tasso di presenza",attendanceRate,"su tutte le presenze registrate"],["Recuperi informativi",attendance.recoveryCount??"—","assenze da valutare"]];
+  const currentMonth=attendance.currentMonth||{},worstMonth=attendance.worstMonth,bestMonth=attendance.bestMonth;
+  const attendanceCards=[["Tasso di presenza",attendanceRate,"su tutte le presenze registrate"],["Presenze mese corrente",attendanceRateLabel(currentMonth),attendanceMonthDetail(currentMonth)],["Mese peggiore",attendanceRateLabel(worstMonth),attendanceMonthDetail(worstMonth)],["Mese migliore",attendanceRateLabel(bestMonth),attendanceMonthDetail(bestMonth)]];
   const finance=[["Netto stagione",d.netRevenue!=null?money(d.netRevenue):"—","Incasso al netto di tasse e bolli","total"],["Incasso mese corrente",d.currentMonthRevenue!=null?money(d.currentMonthRevenue):"—",""],["Media mensile",d.averageMonthlyNet!=null?money(d.averageMonthlyNet):(d.averageMonthlyRevenue!=null?money(d.averageMonthlyRevenue):"—"),"Netto ÷ 9 mesi"],["Incasso stagione",d.revenue!=null?money(d.revenue):"—","Totale registrato"],["Tasse stimate",d.taxRevenue!=null?money(d.taxRevenue):"—","78% × 31% + 2 € per pagamento"]];
   const cards=items=>items.map(x=>'<div class="kpi dashboard-kpi '+(x[3]==="total"?'dashboard-total':'')+'"><strong>'+x[1]+'</strong><span>'+x[0]+'</span>'+(x[2]?'<small>'+x[2]+'</small>':'')+'</div>').join("");
-  const attendanceSection='<section class="dashboard-section"><div class="section-head"><div><h2>Presenze</h2><small>Riepilogo del registro; i recuperi sono solo informativi</small></div></div><div class="dashboard-grid">'+cards(attendanceCards)+'</div><div class="dashboard-attendance-note">'+esc((attendance.trackedMembers??0)+" iscritti con almeno una presenza registrata · "+(attendance.membersWithAbsences??0)+" con almeno un’assenza · "+(attendance.lowAttendanceMembers??0)+" a bassa presenza")+'</div></section>';
+  const attendanceSection='<section class="dashboard-section"><div class="section-head"><div><h2>Presenze</h2><small>Confronto mensile sulle presenze registrate</small></div></div><div class="dashboard-grid">'+cards(attendanceCards)+'</div><div class="dashboard-attendance-note">'+esc("Il mese corrente si aggiorna automaticamente; il confronto considera i mesi con presenze registrate")+"</div></section>';
   const automation=state.portal?.automationActive?'<div class="automation-status active"><strong>Automazioni area iscritti attive</strong><span>Email presenza alle 09:00, promemoria alle 16:00 e avvisi pagamento.</span></div>':'<div class="automation-status"><strong>Automazioni non ancora attive</strong><span>Attivale una volta per programmare email e promemoria.</span><button class="primary" onclick="activatePortalAutomation()">ATTIVA AUTOMAZIONI</button></div>';
   const fs=d.finance||state.financeSummary||{};
   const financeSection='<section class="dashboard-section"><div class="section-head"><div><h2>Controllo finanze</h2><small>Formula: importo lordo × 78% × 31% + 2 € marca da bollo</small></div><button class="secondary inline-action" onclick="state.view=\'finance\';render()">APRI</button></div><div class="finance-alert-grid"><div><strong>'+esc(fs.toClassify??0)+'</strong><span>Eccezioni fiscali</span></div><div><strong>'+esc(fs.taxesToMove??0)+'</strong><span>Tasse da spostare</span></div><div><strong>'+esc(fs.invoiceDue??0)+'</strong><span>Fatture da fare</span></div></div></section>';
