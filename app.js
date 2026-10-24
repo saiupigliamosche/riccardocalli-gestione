@@ -1,5 +1,5 @@
 const CONFIG={VERSION:"0.15.2",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",ENROLLMENT_FORM:"https://form.jotform.com/262643062831050",SEASON_START:"2026-10-01",SEASON_END:"2027-06-09"};
-CONFIG.VERSION="0.20.1";
+CONFIG.VERSION="0.20.2";
 const FINANCE_DEFAULT="Fattura";
 const FINANCE_EXCEPTION="Eccezione";
 const ENTRY_PAYMENT_PRESETS={"Ingresso singolo":15,"Carnet 5 ingressi":60,"Carnet 10 ingressi":110};
@@ -346,6 +346,19 @@ function derivePaymentSummary(){
   return {totalExpected:received+outstanding,received,outstanding,paidPeople:paidPeople.size,duePeople:duePeople.size,openDeadlines:openDeadlines.length};
 }
 function paymentSummaryCard(value,label,detail){return '<div class="kpi finance-kpi"><strong>'+esc(value)+'</strong><span>'+esc(label)+'</span>'+(detail?'<small>'+esc(detail)+'</small>':'')+'</div>'}
+function confirmPaymentDelete(id){
+  const payment=(state.payments||[]).find(x=>x.id===id);
+  if(!payment)return;
+  const message="Eliminare il pagamento di "+payment.name+" del "+fmtDate(payment.date)+" ("+money(payment.amount)+")? Verranno rimossi anche la fiscalità e l’eventuale PDF fattura collegato. La scadenza associata tornerà da pagare.";
+  showConfirm({eyebrow:"ELIMINA PAGAMENTO",title:"Confermi la cancellazione?",message,confirmLabel:"ELIMINA",danger:true,onConfirm:()=>deletePayment(id)});
+}
+async function deletePayment(id){
+  try{
+    await api("deletePayment",{paymentId:id});
+    toast("Pagamento eliminato");
+    await loadAll();
+  }catch(e){showError(e.message,"Pagamento non eliminato")}
+}
 function renderPayments(){
   titleEl.textContent="Pagamenti";
   if(!backend()||!token()){viewEl.innerHTML=connectionCard();return}
@@ -359,7 +372,7 @@ function renderPayments(){
     paymentSummaryCard(summary.duePeople||0,"Persone che devono pagare","con quote aperte")+
     '</div></section>';
   viewEl.innerHTML=summaryHtml+'<button class="primary" onclick="newPayment()">+ REGISTRA PAGAMENTO</button><section class="section"><div class="section-head"><h2>Ultimi pagamenti</h2><button class="secondary inline-action" onclick="state.view=\'finance\';render()">GESTISCI FINANZE</button></div>'+
-  (state.payments?.length?state.payments.map(x=>{const f=financeById[x.id];return '<div class="card payment-card"><div class="card-row"><div><div class="card-title">'+esc(x.name)+'</div><div class="card-sub">'+fmtDate(x.date)+' · '+esc(x.method||"")+'</div>'+paymentReferenceHtml(x,f)+(x.entryNotice?'<div class="payment-status-row"><span class="finance-chip warning">'+esc(x.entryNotice)+'</span></div>':'')+(f?'<div class="payment-status-row"><span class="finance-chip '+financeStatusClass(f.classification)+'">'+esc(financeClassificationLabel(f.classification))+'</span><span class="finance-chip '+financeStatusClass(f.taxStatus)+'">Tasse: '+esc(f.taxStatus)+'</span>'+(f.invoiceDocumentId?'<span class="finance-chip ok">PDF fattura</span>':'')+'</div>':'')+'</div><strong>'+money(x.amount)+'</strong></div>'+(f?'<button class="secondary payment-finance-btn" onclick="financeEdit(\''+esc(f.id)+'\')">AGGIORNA STATO FISCALE</button>':'')+'</div>'}).join(""):'<div class="empty">Nessun pagamento registrato.</div>')+'</section>';
+  (state.payments?.length?state.payments.map(x=>{const f=financeById[x.id];return '<div class="card payment-card"><div class="card-row"><div><div class="card-title">'+esc(x.name)+'</div><div class="card-sub">'+fmtDate(x.date)+' · '+esc(x.method||"")+'</div>'+paymentReferenceHtml(x,f)+(x.entryNotice?'<div class="payment-status-row"><span class="finance-chip warning">'+esc(x.entryNotice)+'</span></div>':'')+(f?'<div class="payment-status-row"><span class="finance-chip '+financeStatusClass(f.classification)+'">'+esc(financeClassificationLabel(f.classification))+'</span><span class="finance-chip '+financeStatusClass(f.taxStatus)+'">Tasse: '+esc(f.taxStatus)+'</span>'+(f.invoiceDocumentId?'<span class="finance-chip ok">PDF fattura</span>':'')+'</div>':'')+'</div><strong>'+money(x.amount)+'</strong></div>'+(f?'<button class="secondary payment-finance-btn" onclick="financeEdit(\''+esc(f.id)+'\')">AGGIORNA STATO FISCALE</button>':'')+'<button class="danger-btn payment-delete-btn" onclick="confirmPaymentDelete(\''+esc(x.id)+'\')">ELIMINA PAGAMENTO</button></div>'}).join(""):'<div class="empty">Nessun pagamento registrato.</div>')+'</section>';
 }
 function financeStatusClass(value){
   const v=String(value||"");
@@ -1028,5 +1041,5 @@ function restoreMember(id){
   });
 }
 
-if("serviceWorker"in navigator)window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js?v=0.20.1").catch(()=>{}));
+if("serviceWorker"in navigator)window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js?v=0.20.2").catch(()=>{}));
 loadAll();
