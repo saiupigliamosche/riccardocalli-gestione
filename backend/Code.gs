@@ -73,6 +73,7 @@ function doPost(e) {
     if (action === 'convertTrial') return json_(convertTrial_(data));
     if (action === 'setTrialStatus') return json_(setTrialStatus_(data));
     if (action === 'recordPayment') return json_(recordPayment_(data));
+    if (action === 'deletePayment') return json_(deletePayment_(data));
     if (action === 'archiveMember') return json_(archiveMember_(data));
     if (action === 'setMemberStatus') return json_(setMemberStatus_(data));
     if (action === 'updateMember') return json_(updateMember_(data));
@@ -97,7 +98,7 @@ function doPost(e) {
 function actionNeedsLock_(action) {
   return [
     'memberRequestLink','memberRegisterPush','memberUnregisterPush','memberLogout',
-    'togglePresence','setPresence','closeLesson','convertTrial','setTrialStatus','recordPayment',
+    'togglePresence','setPresence','closeLesson','convertTrial','setTrialStatus','recordPayment','deletePayment',
     'archiveMember','setMemberStatus','updateMember','walkIn','saveLessonDidactics','updateDeadline',
     'uploadMemberDocument','deleteMemberDocument','sendMemberAccessLink','installPortalAutomation','updateFinance','uploadFinanceInvoice'
   ].indexOf(action) >= 0;
@@ -658,6 +659,64 @@ function recordPayment_(d) {
   });
   if(personId && typeof settleNextDeadline_==='function') settleNextDeadline_(personId,amount,paymentId);
   return {ok:true,paymentId};
+}
+
+function deletePayment_(d) {
+  const paymentId = clean_(d.paymentId || d.id);
+  if (!paymentId) throw new Error('Pagamento non valido.');
+
+  ensureEntryPassSchema_();
+  const attendanceRows = table_(sheet_(ADMIN.sheets.attendance));
+  if (attendanceRows.some(function(r) { return str_(r['Pagamento ID']) === paymentId; })) {
+    throw new Error('Questo pagamento è collegato a una presenza o a un ingresso carnet già registrato. Correggi prima la presenza, poi riprova.');
+  }
+
+  const paymentSh = sheet_(ADMIN.sheets.payments);
+  const paymentHeaders = headers_(paymentSh);
+  const paymentValues = paymentSh.getDataRange().getValues();
+  const paymentIdCol = paymentHeaders.indexOf('Pagamento ID');
+  let paymentRowNumber = 0;
+  for (let i = 1; i < paymentValues.length; i++) {
+    if (str_(paymentValues[i][paymentIdCol]) === paymentId) {
+      paymentRowNumber = i + 1;
+      break;
+    }
+  }
+  if (!paymentRowNumber) throw new Error('Pagamento non trovato.');
+
+  ensureMemberPortalSchema_();
+  const deadlineSh = sheet_(ADMIN.sheets.deadlines);
+  const deadlineHeaders = headers_(deadlineSh);
+  const deadlineValues = deadlineSh.getDataRange().getValues();
+  const deadlinePaymentCol = deadlineHeaders.indexOf('Pagamento ID');
+  for (let i = 1; i < deadlineValues.length; i++) {
+    if (str_(deadlineValues[i][deadlinePaymentCol]) !== paymentId) continue;
+    setCellByHeader_(deadlineSh, i + 1, deadlineHeaders, 'Stato', 'Da pagare');
+    setCellByHeader_(deadlineSh, i + 1, deadlineHeaders, 'Pagamento ID', '');
+    setCellByHeader_(deadlineSh, i + 1, deadlineHeaders, 'Data pagamento', '');
+    setCellByHeader_(deadlineSh, i + 1, deadlineHeaders, 'Ultimo aggiornamento', new Date());
+  }
+
+  const financeSh = ensureFinanceSchema_();
+  const financeHeaders = headers_(financeSh);
+  const financeValues = financeSh.getDataRange().getValues();
+  const financeIdCol = financeHeaders.indexOf('Pagamento ID');
+  let financeRowNumber = 0;
+  let invoiceDocumentId = '';
+  for (let i = 1; i < financeValues.length; i++) {
+    if (str_(financeValues[i][financeIdCol]) !== paymentId) continue;
+    financeRowNumber = i + 1;
+    invoiceDocumentId = str_(financeValues[i][financeHeaders.indexOf('Documento fattura ID')]);
+    break;
+  }
+
+  if (invoiceDocumentId && typeof deleteMemberDocument_ === 'function') {
+    try { deleteMemberDocument_({ documentId: invoiceDocumentId }); } catch (_) {}
+  }
+  if (financeRowNumber) financeSh.deleteRow(financeRowNumber);
+  paymentSh.deleteRow(paymentRowNumber);
+  SpreadsheetApp.flush();
+  return { ok: true, paymentId: paymentId };
 }
 
 function updateFinance_(d) {
