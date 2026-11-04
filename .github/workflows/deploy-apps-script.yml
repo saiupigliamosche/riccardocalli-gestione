@@ -1,0 +1,113 @@
+name: Deploy Apps Script
+
+on:
+  push:
+    branches: [deploy/apps-script]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish a new version on the existing deployment"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: parkour-apps-script-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/deploy/apps-script' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: apps-script-production
+    env:
+      DEPLOYMENT_ID: AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install clasp
+        run: npm install --global --ignore-scripts --no-audit --no-fund @google/clasp@3.4.1
+      - name: Verify and update the existing deployment
+        shell: bash
+        env:
+          SCRIPT_ID: ${{ vars.PARKOUR_SCRIPT_ID }}
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+          PUBLISH: ${{ github.event_name == 'push' || inputs.publish }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$SCRIPT_ID" =~ ^[A-Za-z0-9_-]+$ || -z "$CLASPRC_JSON" ]]; then
+            echo "::error::Configure PARKOUR_SCRIPT_ID and CLASPRC_JSON in apps-script-production."
+            exit 1
+          fi
+
+          backend_dir="$GITHUB_WORKSPACE/backend"
+          for source in "$backend_dir"/*.gs; do
+            node --check < "$source"
+          done
+          expected_version=$(sed -nE "s/.*version: '([0-9]+\.[0-9]+\.[0-9]+)'.*/\1/p" "$backend_dir/Code.gs")
+          [[ "$expected_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          endpoint="https://script.google.com/macros/s/$DEPLOYMENT_ID/exec"
+          api_version() {
+            curl -fsSL --retry 2 --max-time 20 "$endpoint" |
+              jq -er 'select(.ok == true and .service == "Parkour Course OS API") | .version'
+          }
+          live_version=$(api_version)
+
+          umask 077
+          parkour_dir=$(mktemp -d)
+          trap 'rm -f "$HOME/.clasprc.json"; rm -rf "$parkour_dir"' EXIT
+          printf '%s' "$CLASPRC_JSON" > "$HOME/.clasprc.json"
+          unset CLASPRC_JSON
+
+          cd "$parkour_dir"
+          jq -n --arg scriptId "$SCRIPT_ID" '{scriptId: $scriptId, scriptExtensions: [".gs", ".js"]}' > .clasp.json
+          deployments=$(clasp list-deployments)
+          if ! grep -Fq -- "$DEPLOYMENT_ID" <<< "$deployments"; then
+            echo "::error::The configured project does not contain the production deployment."
+            exit 1
+          fi
+          clasp pull
+          test -s appsscript.json
+
+          changed=false
+          for source in "$backend_dir"/*.gs; do
+            target=$(basename "$source")
+            if ! cmp -s "$source" "$target"; then
+              cp "$source" "$target"
+              changed=true
+            fi
+          done
+          printf 'Version in production: %s. Version in Git: %s. Local changes: %s.\n' "$live_version" "$expected_version" "$changed"
+          if [[ "$PUBLISH" != true ]]; then
+            echo "Preflight complete."
+            exit 0
+          fi
+          if [[ "$live_version" == "$expected_version" ]]; then
+            if [[ "$changed" == true ]]; then
+              echo "::error::Code differs. Increase the API version in Code.gs before deploying."
+              exit 1
+            fi
+            echo "The deployment is already at the expected version."
+            exit 0
+          fi
+
+          if [[ "$changed" == true ]]; then
+            clasp push --force
+          fi
+          clasp update-deployment "$DEPLOYMENT_ID" --description "Parkour Course OS $expected_version (${GITHUB_SHA:0:8})"
+          for attempt in {1..6}; do
+            if [[ "$(api_version)" == "$expected_version" ]]; then
+              echo "Production is serving $expected_version."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::The production endpoint did not report $expected_version."
+          exit 1
