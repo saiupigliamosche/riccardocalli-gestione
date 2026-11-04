@@ -7,6 +7,23 @@ const SHIRTS = {
   pricingKey: 'SHIRTS_TEEFARM_PRICING'
 };
 
+// Cart prices supplied by Saiu. Between measured quantities, use the
+// preceding rate as a provisional estimate, including the 7-to-8 cent change.
+const SHIRTS_INITIAL_PRICING = {
+  checkedAt: '2026-11-04',
+  validUntil: '',
+  maxQuantity: 25,
+  observedQuantities: [1, 5, 7, 8, 10, 25],
+  tiers: [
+    { min: 1, cents: 2457 },
+    { min: 5, cents: 2363 },
+    { min: 7, cents: 2362 },
+    { min: 8, cents: 2363 },
+    { min: 10, cents: 2249 },
+    { min: 25, cents: 2136 }
+  ]
+};
+
 function shirtsSheet_(book, name, expectedHeaders, create) {
   let sheet = book.getSheetByName(name);
   if (!sheet && create) sheet = book.insertSheet(name);
@@ -45,7 +62,8 @@ function shirtsRead_() {
     } : null).filter(Boolean);
   const batchId = Math.max(0, ...batches.map(b => b.id)) + 1;
   const current = requests.filter(r => r.batchId === batchId);
-  const pricing = JSON.parse(PropertiesService.getScriptProperties().getProperty(SHIRTS.pricingKey) || 'null');
+  const savedPricing = PropertiesService.getScriptProperties().getProperty(SHIRTS.pricingKey);
+  const pricing = savedPricing ? JSON.parse(savedPricing) : SHIRTS_INITIAL_PRICING;
   return { book, requestSheet, batchSheet, requests, batches, batchId, current, pricing };
 }
 
@@ -55,8 +73,12 @@ function shirtsTotals_(requests) {
   return { bySize, total: Object.values(bySize).reduce((sum, qty) => sum + qty, 0) };
 }
 
+function shirtsPricingIsCurrent_(pricing) {
+  return !!pricing && (!pricing.validUntil || pricing.validUntil >= dateKey_(new Date()));
+}
+
 function shirtsQuote_(pricing, total) {
-  if (!pricing || pricing.validUntil < dateKey_(new Date()) || total > pricing.maxQuantity) return null;
+  if (!shirtsPricingIsCurrent_(pricing) || total > pricing.maxQuantity) return null;
   const tier = pricing.tiers.filter(t => t.min <= Math.max(total, 1)).pop();
   return tier ? tier.cents : null;
 }
@@ -68,7 +90,7 @@ function shirtsMemberPayload_(data, personId) {
     batchId: data.batchId,
     total,
     unitCents: shirtsQuote_(data.pricing, total),
-    pricing: data.pricing && data.pricing.validUntil >= dateKey_(new Date()) ? data.pricing : null,
+    pricing: shirtsPricingIsCurrent_(data.pricing) ? data.pricing : null,
     quantities: mine ? mine.quantities : {},
     updatedAt: mine ? mine.updatedAt : '',
     history: data.requests.filter(r => r.personId === personId && r.batchId !== data.batchId)
@@ -134,8 +156,8 @@ function shirtsPricing_(input) {
   if (tiers[0].min !== 1 || tiers.some((t, i) =>
     !Number.isSafeInteger(t.min) || t.min < 1 || t.min > maxQuantity ||
     !Number.isSafeInteger(t.cents) || t.cents <= 0 || t.cents > 1000000 ||
-    (i > 0 && (tiers[i - 1].min >= t.min || tiers[i - 1].cents < t.cents))
-  )) throw new Error('Parti da 1 pezzo e inserisci soglie crescenti con prezzi unitari positivi e non crescenti.');
+    (i > 0 && (tiers[i - 1].min >= t.min || tiers[i - 1].cents + 1 < t.cents))
+  )) throw new Error('Parti da 1 pezzo e inserisci soglie crescenti con prezzi positivi. È ammesso un aumento di un centesimo per arrotondamento.');
   return { checkedAt: today, validUntil, maxQuantity, tiers };
 }
 
@@ -147,7 +169,7 @@ function shirtsAdminPayload_(data) {
   const names = new Map(memberList_().map(m => [m.id, m.name]));
   const people = rows => rows.map(r => ({
     name: names.get(r.personId) || r.personId, personId: r.personId, quantities: r.quantities,
-    paidAt: r.paidAt, deliveredAt: r.deliveredAt
+    updatedAt: r.updatedAt, paidAt: r.paidAt, deliveredAt: r.deliveredAt
   }));
   const totals = shirtsTotals_(data.current);
   return {

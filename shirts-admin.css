@@ -8,3 +8,9 @@
 .shirts-record { margin-top: 12px; }
 .shirts-status { display: flex; gap: 16px; width: 100%; }
 .shirts-status input { display: inline; width: auto; margin: 0; }
+
+.shirts-views { margin: 12px 0; }
+.shirts-views button[aria-pressed="true"] { border-color: var(--brand); color: var(--brand); font-weight: 800; }
+.shirts-history { padding: 0; list-style: none; margin: 8px 0 0; }
+.shirts-history li { display: grid; gap: 5px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.shirts-history li:last-child { border-bottom: 0; padding-bottom: 0; }

@@ -115,7 +115,7 @@ devono essere committati nel codice.
 
 1. Nel progetto Apps Script già collegato aggiorna Code.gs e aggiungi Shirts.gs. Mantieni la configurazione e le autorizzazioni esistenti.
 2. Crea una nuova versione sul deployment esistente, mantenendo il suo URL. Verifica la risposta GET con versione 1.14.0.
-3. In Dashboard → Ordini maglie inserisci il listino TeeFarm per Cream, stampa fronte e retro, IVA inclusa. Indica le soglie esatte a partire da 1, la quantità massima verificata e la data di validità. Fuori dai dati verificati appare “Prezzo in verifica”.
+3. In Dashboard → Ordini maglie il listino iniziale usa le rilevazioni TeeFarm fornite da Saiu (1, 5, 7, 8, 10 e 25 pezzi). Le altre quantità fino a 25 usano una stima dalla rilevazione precedente. Da 26 pezzi appare “Prezzo in verifica”. Puoi sostituire il listino dal pannello admin. La vista Per persona raggruppa i preordini aperti e lo storico dei lotti.
 4. Copia i quattro mockup approvati in iscritti/maglie/ come salto.webp, fronte.webp, retro.webp e gruppo.webp prima di pubblicare il frontend. Verifica la galleria con un account iscritto.
 5. Collauda su una copia del database con due sessioni. Salva un preordine per ciascuna e verifica il ricalcolo per entrambe. Chiudi il lotto dall’admin e controlla che il nuovo parta a zero e lo storico rimanga disponibile.
 6. Pubblica il frontend solo dopo che il backend risponde alle nuove azioni. L’acquisto si finalizza su TeeFarm e si registra successivamente nel gestionale.

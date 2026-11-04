@@ -33,15 +33,25 @@ function shirtsMemberPrice(form) {
   const tier = pricing && total <= pricing.maxQuantity
     ? pricing.tiers.filter(t => t.min <= Math.max(1, total)).pop() : null;
   const saved = shirtsMemberQty(value.quantities);
+  const quantityLabel = total === 1 ? '1 maglia' : total + ' maglie';
   form.querySelector('[data-shirts-total]').textContent =
-    total === 1 ? '1 maglia nel lotto' : total + ' maglie nel lotto';
+    qty !== saved ? 'Con la tua scelta: ' + quantityLabel : quantityLabel + ' nel lotto';
   form.querySelector('[data-shirts-price]').textContent = tier
     ? money(tier.cents / 100) + ' a maglia'
     : 'Prezzo in verifica';
-  form.querySelector('[data-shirts-price-detail]').textContent = tier
-    ? (qty ? 'Totale stimato per la tua scelta: ' + money(tier.cents * qty / 100) + '. ' : '') +
-      'Listino verificato il ' + fmtDate(pricing.checkedAt, false) + '.'
-    : 'La stima sarà disponibile quando Saiu avrà verificato il prezzo per questa quantità.';
+  let rateDetail = 'La stima sarà disponibile quando Saiu avrà verificato il prezzo per questa quantità.';
+  if (tier) {
+    const quantity = Math.max(1, total);
+    const date = fmtDate(pricing.checkedAt, false);
+    if (!pricing.observedQuantities) rateDetail = 'Listino aggiornato il ' + date + '.';
+    else if (pricing.observedQuantities.includes(quantity)) {
+      rateDetail = 'Prezzo TeeFarm rilevato per ' + quantity + (quantity === 1 ? ' pezzo' : ' pezzi') + ' il ' + date + '.';
+    } else {
+      rateDetail = 'Stima dalla quantità precedente rilevata il ' + date + '.';
+    }
+  }
+  form.querySelector('[data-shirts-price-detail]').textContent =
+    (tier && qty ? 'Totale stimato per la tua scelta: ' + money(tier.cents * qty / 100) + '. ' : '') + rateDetail;
   form.querySelector('[data-shirts-saved]').textContent = saved
     ? saved + (saved === 1 ? ' maglia prenotata' : ' maglie prenotate') : 'Nessuna richiesta nel lotto aperto';
   form.querySelector('[data-shirts-save]').textContent = qty
