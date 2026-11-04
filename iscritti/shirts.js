@@ -155,7 +155,10 @@ async function refreshMemberShirts() {
   if (!MEMBER_SHIRTS.value && $('#shirtStatus')) $('#shirtStatus').textContent = 'Caricamento preordini…';
   try {
     const value = await api('memberShirts', { sessionToken: currentSession });
-    if (state.view === 'shirts' && session() === currentSession) applyMemberShirts(value);
+    if (state.view === 'shirts' && session() === currentSession) {
+      applyMemberShirts(value);
+      return true;
+    }
   } catch (error) {
     if (state.view !== 'shirts' || session() !== currentSession || !$('#shirtStatus')) return;
     $('#shirtStatus').textContent = error.message === 'Azione non valida.'
