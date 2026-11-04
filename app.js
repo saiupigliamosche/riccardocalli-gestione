@@ -1,5 +1,5 @@
 const CONFIG={VERSION:"0.15.2",OWNER:"riccardo.calli@gmail.com",DEFAULT_API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",ENROLLMENT_FORM:"https://form.jotform.com/262643062831050",SEASON_START:"2026-10-01",SEASON_END:"2027-06-09"};
-CONFIG.VERSION="0.20.2";
+CONFIG.VERSION="0.21.0";
 const FINANCE_DEFAULT="Fattura";
 const FINANCE_EXCEPTION="Eccezione";
 const ENTRY_PAYMENT_PRESETS={"Ingresso singolo":15,"Carnet 5 ingressi":60,"Carnet 10 ingressi":110};
@@ -478,6 +478,8 @@ function renderDashboard(){
   const fs=d.finance||state.financeSummary||{};
   const financeSection='<section class="dashboard-section"><div class="section-head"><div><h2>Controllo finanze</h2><small>Formula: importo lordo × 78% × 31% + 2 € marca da bollo</small></div><button class="secondary inline-action" onclick="state.view=\'finance\';render()">APRI</button></div><div class="finance-alert-grid"><div><strong>'+esc(fs.toClassify??0)+'</strong><span>Eccezioni fiscali</span></div><div><strong>'+esc(fs.taxesToMove??0)+'</strong><span>Tasse da spostare</span></div><div><strong>'+esc(fs.invoiceDue??0)+'</strong><span>Fatture da fare</span></div></div></section>';
   viewEl.innerHTML='<section class="dashboard-section"><div class="section-head"><h2>Corso</h2></div><div class="dashboard-grid">'+cards(course)+'</div></section>'+attendanceSection+'<section class="dashboard-section"><div class="section-head"><h2>Economia</h2></div><div class="dashboard-grid dashboard-finance">'+cards(finance)+'</div></section>'+financeSection+'<section class="dashboard-section"><div class="section-head"><h2>Area iscritti</h2></div>'+automation+'</section><div class="actions"><button class="secondary" onclick="disconnectBackend()">DISCONNETTI QUESTO DISPOSITIVO</button></div>';
+  viewEl.insertAdjacentHTML('beforeend','<section class="dashboard-section"><div class="section-head"><h2>Maglia del gruppo</h2></div><button id="openShirtsAdmin" class="secondary">ORDINI MAGLIE</button></section>');
+  $('#openShirtsAdmin').onclick=()=>{state.view='shirts';render()};
 }
 async function activatePortalAutomation(){
   showConfirm({eyebrow:"AUTOMAZIONI",title:"Attiva notifiche email",message:"Verrà creato un controllo orario che invia le richieste di conferma nei giorni di corso e i promemoria delle scadenze.",confirmLabel:"ATTIVA",onConfirm:async()=>{try{await api("installPortalAutomation");toast("Automazioni attivate");await loadAll()}catch(e){showError(e.message,"Automazioni non attivate")}}});
@@ -493,7 +495,7 @@ async function loadAll(){
   finally{if(syncBtn)syncBtn.disabled=false}
   render();
 }
-function render(){document.querySelectorAll(".nav-item").forEach(b=>b.classList.toggle("active",b.dataset.view===state.view));({home:renderHome,trials:renderTrials,members:renderMembers,payments:renderPayments,finance:renderFinance,didactics:renderDidactics,dashboard:renderDashboard}[state.view])()}
+function render(){document.querySelectorAll(".nav-item").forEach(b=>b.classList.toggle("active",b.dataset.view===state.view));({home:renderHome,trials:renderTrials,members:renderMembers,payments:renderPayments,finance:renderFinance,didactics:renderDidactics,dashboard:renderDashboard,shirts:renderShirtsAdmin}[state.view])()}
 document.querySelectorAll(".nav-item").forEach(b=>b.addEventListener("click",()=>{state.view=b.dataset.view;render()}));$("#syncBtn").addEventListener("click",loadAll);
 
 function nextCourseDate(){

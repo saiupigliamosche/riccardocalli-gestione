@@ -13,8 +13,9 @@ Copia integralmente nello stesso progetto Apps Script:
 - `backend/Code.gs` nel file `Code.gs`;
 - `backend/JotformWebhook.gs` in un secondo file script chiamato `JotformWebhook.gs`.
 - `backend/MemberPortal.gs` in un terzo file script chiamato `MemberPortal.gs`.
+- `backend/Shirts.gs` in un quarto file script chiamato `Shirts.gs`.
 
-I tre file lavorano nello stesso progetto e sullo stesso Google Sheet. `MemberPortal.gs` gestisce accessi via email, scadenze, documenti e conferme lezione senza creare un backend o un database parallelo.
+I quattro file lavorano nello stesso progetto e sullo stesso Google Sheet. `MemberPortal.gs` gestisce accessi via email, scadenze, documenti e conferme lezione senza creare un backend o un database parallelo.
 
 ## 3. Imposta il token amministratore
 In Apps Script:
@@ -109,3 +110,14 @@ Il repository è pubblico, quindi:
 - nessun dato personale;
 - nessuna credenziale;
 devono essere committati nel codice.
+
+## Aggiornamento maglie sul deployment esistente
+
+1. Nel progetto Apps Script già collegato aggiorna Code.gs e aggiungi Shirts.gs. Mantieni la configurazione e le autorizzazioni esistenti.
+2. Crea una nuova versione sul deployment esistente, mantenendo il suo URL. Verifica la risposta GET con versione 1.14.0.
+3. In Dashboard → Ordini maglie inserisci il listino TeeFarm per Cream, stampa fronte e retro, IVA inclusa. Indica le soglie esatte a partire da 1, la quantità massima verificata e la data di validità. Fuori dai dati verificati appare “Prezzo in verifica”.
+4. Copia i quattro mockup approvati in iscritti/maglie/ come salto.webp, fronte.webp, retro.webp e gruppo.webp prima di pubblicare il frontend. Verifica la galleria con un account iscritto.
+5. Collauda su una copia del database con due sessioni. Salva un preordine per ciascuna e verifica il ricalcolo per entrambe. Chiudi il lotto dall’admin e controlla che il nuovo parta a zero e lo storico rimanga disponibile.
+6. Pubblica il frontend solo dopo che il backend risponde alle nuove azioni. L’acquisto si finalizza su TeeFarm e si registra successivamente nel gestionale.
+
+Le schede Preordini maglie e Lotti maglie vengono create alla prima scrittura. Il listino resta modificabile dal pannello admin.

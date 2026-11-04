@@ -1,0 +1,10 @@
+.shirts-panel { margin: 12px 0; }
+.shirts-panel summary { cursor: pointer; font-weight: 800; }
+.shirts-panel p { line-height: 1.5; }
+.shirts-panel textarea { min-height: 68px; resize: vertical; }
+.shirts-panel input, .shirts-panel textarea { display: block; width: 100%; margin: 6px 0 12px; }
+.shirts-list { margin: 10px 0 16px; padding: 0; list-style: none; }
+.shirts-list li { display: flex; gap: 8px 16px; flex-wrap: wrap; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.shirts-record { margin-top: 12px; }
+.shirts-status { display: flex; gap: 16px; width: 100%; }
+.shirts-status input { display: inline; width: auto; margin: 0; }

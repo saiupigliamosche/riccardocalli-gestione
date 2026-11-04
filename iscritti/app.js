@@ -1,4 +1,4 @@
-const CONFIG={API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",VERSION:"1.3.2",FIREBASE_SDK:"10.14.1"};
+const CONFIG={API:"https://script.google.com/macros/s/AKfycbyy-lBBedchYGG4Ob-oqLJCeFjvkEswzEH9XV8kNGIYpXAEIAKKB-8-s6N5OB4f6I1d/exec",VERSION:"1.5.0",FIREBASE_SDK:"10.14.1"};
 const state={view:"home",portal:null,loading:false,pushBusy:false,rsvpBusy:false,loginPolling:false,loginPollTimer:null};
 const $=s=>document.querySelector(s),viewEl=$("#view"),titleEl=$("#pageTitle"),navEl=$("#bottomNav"),profileBtn=$("#profileBtn"),toastEl=$("#toast");
 const session=()=>localStorage.getItem("parkour_member_session")||"";
@@ -69,7 +69,7 @@ async function loadPortal(){
   }
 }
 function renderShell(){navEl.hidden=false;profileBtn.hidden=false;profileBtn.textContent=initials(state.portal.member.name);render()}
-function render(){document.querySelectorAll("#bottomNav button").forEach(b=>b.classList.toggle("active",b.dataset.view===state.view));({home:renderHome,payments:renderPayments,documents:renderDocuments}[state.view]||renderHome)()}
+function render(){document.querySelectorAll("#bottomNav button").forEach(b=>b.classList.toggle("active",b.dataset.view===state.view));({home:renderHome,payments:renderPayments,documents:renderDocuments,shirts:renderMemberShirts}[state.view]||renderHome)()}
 function pushCard(){
   const p=state.portal?.push;if(!p?.available)return"";
   const needsInstall=iosDevice()&&!standaloneApp();
@@ -135,8 +135,8 @@ function renderDocuments(){
 }
 async function downloadDocument(id,button){if(button)button.disabled=true;toast("Preparazione documento…");try{const file=await api("memberGetDocument",{sessionToken:session(),documentId:id}),binary=atob(file.contentBase64),bytes=new Uint8Array(binary.length);for(let i=0;i<binary.length;i++)bytes[i]=binary.charCodeAt(i);const url=URL.createObjectURL(new Blob([bytes],{type:file.mimeType||"application/octet-stream"})),a=document.createElement("a");a.href=url;a.download=file.fileName||"documento";document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),2000)}catch(err){showMessage("Documento non disponibile",err.message)}finally{if(button)button.disabled=false}}
 function openProfile(){const m=state.portal.member;document.body.insertAdjacentHTML("beforeend",'<div class="modal-backdrop visible" id="profileModal"><section class="app-modal"><div class="modal-header"><div><div class="eyebrow">PROFILO</div><h2>'+esc(m.name)+'</h2></div><button class="modal-close" aria-label="Chiudi">×</button></div><div class="profile-details"><span>Email</span><strong>'+esc(m.email)+'</strong><span>Frequenza</span><strong>'+esc(m.frequency||"—")+'</strong><span>Pacchetto</span><strong>'+esc(m.plan||"—")+'</strong></div><button class="secondary logout">ESCI DA QUESTO DISPOSITIVO</button></section></div>');$("#profileModal .modal-close").onclick=()=>$("#profileModal").remove();$("#profileModal .logout").onclick=logout}
-async function logout(){try{if(pushToken())await api("memberUnregisterPush",{sessionToken:session(),fcmToken:pushToken(),deviceId:deviceId()});await api("memberLogout",{sessionToken:session()})}catch(_){}localStorage.removeItem("parkour_push_token");localStorage.removeItem(MEMBER_SNAPSHOT_KEY);setSession("");state.portal=null;$("#profileModal")?.remove();loginScreen()}
+async function logout(){try{if(pushToken())await api("memberUnregisterPush",{sessionToken:session(),fcmToken:pushToken(),deviceId:deviceId()});await api("memberLogout",{sessionToken:session()})}catch(_){}localStorage.removeItem("parkour_push_token");localStorage.removeItem(MEMBER_SNAPSHOT_KEY);setSession("");state.portal=null;MEMBER_SHIRTS.value=null;MEMBER_SHIRTS.owner="";$("#profileModal")?.remove();loginScreen()}
 document.querySelectorAll("#bottomNav button").forEach(b=>b.addEventListener("click",()=>{state.view=b.dataset.view;history.replaceState({},"",location.pathname+"#"+state.view);render()}));profileBtn.addEventListener("click",openProfile);
-(async function init(){const requested=location.hash.slice(1);if(["home","payments","documents"].includes(requested))state.view=requested;const raw=new URLSearchParams(location.search).get("login");if(raw)await exchangeLoginToken(raw);else if(!session()&&readLoginRequest())startLoginPolling();else await loadPortal()})();
+(async function init(){const requested=location.hash.slice(1);if(["home","payments","documents","shirts"].includes(requested))state.view=requested;const raw=new URLSearchParams(location.search).get("login");if(raw)await exchangeLoginToken(raw);else if(!session()&&readLoginRequest())startLoginPolling();else await loadPortal()})();
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"&&!session()&&readLoginRequest())claimLogin()});
 if("serviceWorker" in navigator)window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}));

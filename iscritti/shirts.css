@@ -1,0 +1,23 @@
+.bottom-nav { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.shirt-intro { margin-bottom: 16px; }
+.shirt-intro h2 { font-size: clamp(28px, 6vw, 40px); letter-spacing: -.035em; }
+.shirt-intro p, .shirt-order p, .shirt-measures p { line-height: 1.5; }
+.shirt-gallery { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.shirt-image:first-child { grid-column: 1 / -1; aspect-ratio: 16 / 9; }
+.shirt-image { display: block; aspect-ratio: 4 / 5; overflow: hidden; border-radius: 14px; background: #eae3d3; }
+.shirt-image img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.shirt-image[hidden], #shirtForm[hidden] { display: none; }
+.shirt-image-pending { font-size: 13px; color: var(--muted); }
+.shirt-order, .shirt-measures { margin-top: 12px; }
+.shirt-measures summary { cursor: pointer; font-weight: 800; }
+.shirt-measures table { width: 100%; border-collapse: collapse; text-align: center; font-size: 13px; }
+.shirt-measures caption { text-align: left; margin: 8px 0; }
+.shirt-measures th, .shirt-measures td { padding: 7px 3px; border-bottom: 1px solid var(--line); }
+.shirt-order fieldset { border: 0; margin: 0; padding: 0; }
+.shirt-order legend { font-weight: 800; margin-bottom: 10px; }
+.shirt-quantities { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.shirt-quantities label { display: grid; gap: 4px; font-weight: 800; }
+.shirt-quantities input { min-height: 44px; width: 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: 9px; color: var(--brand); }
+.shirt-estimate { display: grid; gap: 4px; padding: 12px; border-radius: 12px; background: #f2ece0; margin-top: 16px; }
+.shirt-estimate strong { font-size: 22px; color: var(--brand); }
+.shirt-estimate small { line-height: 1.4; }
