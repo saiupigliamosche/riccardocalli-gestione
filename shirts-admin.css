@@ -1,0 +1,16 @@
+.shirts-panel { margin: 12px 0; }
+.shirts-panel summary { cursor: pointer; font-weight: 800; }
+.shirts-panel p { line-height: 1.5; }
+.shirts-panel textarea { min-height: 68px; resize: vertical; }
+.shirts-panel input, .shirts-panel textarea { display: block; width: 100%; margin: 6px 0 12px; }
+.shirts-list { margin: 10px 0 16px; padding: 0; list-style: none; }
+.shirts-list li { display: flex; gap: 8px 16px; flex-wrap: wrap; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.shirts-record { margin-top: 12px; }
+.shirts-status { display: flex; gap: 16px; width: 100%; }
+.shirts-status input { display: inline; width: auto; margin: 0; }
+
+.shirts-views { margin: 12px 0; }
+.shirts-views button[aria-pressed="true"] { border-color: var(--brand); color: var(--brand); font-weight: 800; }
+.shirts-history { padding: 0; list-style: none; margin: 8px 0 0; }
+.shirts-history li { display: grid; gap: 5px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.shirts-history li:last-child { border-bottom: 0; padding-bottom: 0; }

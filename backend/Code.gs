@@ -41,7 +41,7 @@ const ENTRY_PASSES = {
 };
 
 function doGet() {
-  return json_({ ok: true, service: 'Parkour Course OS API', version: '1.13.0' });
+  return json_({ ok: true, service: 'Parkour Course OS API', version: '1.14.0' });
 }
 
 function doPost(e) {
@@ -62,9 +62,15 @@ function doPost(e) {
       locked = true;
     }
 
+    if (action === 'memberShirts' || action === 'memberSaveShirts') return json_(shirtsMember_(action, data));
+
     if (isMemberPortalAction_(action)) return json_(dispatchMemberPortalAction_(action, data));
 
     authorize_(p.token);
+
+    if (['shirtsAdmin','shirtsPricing','shirtsPrepare','shirtsRecordOrder','shirtsRequestStatus'].includes(action)) {
+      return json_(shirtsAdmin_(action, data));
+    }
 
     if (action === 'bootstrap') return json_({ ok: true, data: bootstrap_() });
     if (action === 'togglePresence') return json_(togglePresence_(data));
@@ -97,6 +103,7 @@ function doPost(e) {
 
 function actionNeedsLock_(action) {
   return [
+    'memberSaveShirts','shirtsPricing','shirtsPrepare','shirtsRecordOrder','shirtsRequestStatus',
     'memberRequestLink','memberRegisterPush','memberUnregisterPush','memberLogout',
     'togglePresence','setPresence','closeLesson','convertTrial','setTrialStatus','recordPayment','deletePayment',
     'archiveMember','setMemberStatus','updateMember','walkIn','saveLessonDidactics','updateDeadline',
