@@ -57,7 +57,9 @@ function shirtsMemberPrice(form) {
   form.querySelector('[data-shirts-save]').textContent = qty
     ? (saved ? 'Aggiorna preordine' : 'Salva preordine')
     : 'Annulla preordine';
-  form.querySelector('[data-shirts-save]').disabled = MEMBER_SHIRTS.saving || (!saved && !qty);
+  if (MEMBER_SHIRTS.loading) form.querySelector('[data-shirts-save]').textContent = 'Aggiornamento preordini…';
+  if (MEMBER_SHIRTS.saving) form.querySelector('[data-shirts-save]').textContent = 'Salvataggio…';
+  form.querySelector('[data-shirts-save]').disabled = MEMBER_SHIRTS.saving || MEMBER_SHIRTS.loading || (!saved && !qty);
 }
 
 function shirtsMemberImages() {
@@ -109,6 +111,7 @@ function renderMemberShirts() {
   const form = $('#shirtForm');
   form.oninput = () => {
     form.dataset.dirty = 'true';
+    $('#shirtStatus').textContent = 'Scelta non salvata. Premi Salva preordine o Aggiorna preordine per confermare.';
     shirtsMemberPrice(form);
   };
   form.onsubmit = saveMemberShirts;
@@ -143,7 +146,7 @@ function applyMemberShirts(value, force = false) {
   }
   form.hidden = false;
   $('#shirtRetry').hidden = true;
-  $('#shirtStatus').textContent = discarded ? 'La richiesta è cambiata. Controlla le quantità prima di salvare.' : '';
+  $('#shirtStatus').textContent = discarded ? 'La richiesta è cambiata. Controlla le quantità prima di salvare.' : form.dataset.dirty ? 'Scelta non salvata. Conferma il preordine.' : shirtsMemberQty(value.quantities) ? 'Il tuo preordine è salvato.' : '';
   shirtsMemberPrice(form);
   renderShirtsHistory(value.history);
 }
@@ -152,6 +155,8 @@ async function refreshMemberShirts() {
   if (state.view !== 'shirts' || !session() || MEMBER_SHIRTS.loading || MEMBER_SHIRTS.saving) return;
   const currentSession = session();
   MEMBER_SHIRTS.loading = true;
+  const currentForm = $('#shirtForm');
+  if (currentForm && MEMBER_SHIRTS.value) shirtsMemberPrice(currentForm);
   if (!MEMBER_SHIRTS.value && $('#shirtStatus')) $('#shirtStatus').textContent = 'Caricamento preordini…';
   try {
     const value = await api('memberShirts', { sessionToken: currentSession });
@@ -165,10 +170,12 @@ async function refreshMemberShirts() {
       ? 'I preordini saranno disponibili dopo l’attivazione.' : error.message;
     $('#shirtRetry').hidden = false;
     const form = $('#shirtForm');
-    if (form) form.hidden = true;
+    if (form) form.hidden = !MEMBER_SHIRTS.value;
     if (MEMBER_SHIRTS.value) MEMBER_SHIRTS.value.pricing = null;
   } finally {
     MEMBER_SHIRTS.loading = false;
+    const form = $('#shirtForm');
+    if (form && session() === currentSession) shirtsMemberPrice(form);
   }
 }
 
@@ -176,7 +183,11 @@ async function saveMemberShirts(event) {
   event.preventDefault();
   const form = event.currentTarget;
   const value = MEMBER_SHIRTS.value;
-  if (!value || MEMBER_SHIRTS.saving || MEMBER_SHIRTS.loading || !form.reportValidity()) return;
+  if (MEMBER_SHIRTS.loading) {
+    toast('Aggiornamento in corso. Attendi e conferma il preordine.');
+    return;
+  }
+  if (!value || MEMBER_SHIRTS.saving || !form.reportValidity()) return;
   const currentSession = session();
   const quantities = shirtsMemberDraft(form);
   MEMBER_SHIRTS.saving = true;
