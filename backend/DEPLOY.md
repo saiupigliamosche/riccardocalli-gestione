@@ -121,3 +121,13 @@ devono essere committati nel codice.
 6. Pubblica il frontend solo dopo che il backend risponde alle nuove azioni. L’acquisto si finalizza su TeeFarm e si registra successivamente nel gestionale.
 
 Le schede Preordini maglie e Lotti maglie vengono create alla prima scrittura. Il listino resta modificabile dal pannello admin.
+
+## Rilasci del backend da GitHub Actions
+
+Il workflow Deploy Apps Script usa clasp 3.4.1 e aggiorna il deployment esistente. Prima del primo avvio abilita l’API Apps Script nelle impostazioni dell’account Google proprietario del progetto ed esegui `npx --yes @google/clasp@3.4.1 login` con quell’account.
+
+1. Crea l’ambiente GitHub `apps-script-production` e limita il deployment a `main` e `deploy/apps-script`. Aggiungi la variabile `PARKOUR_SCRIPT_ID` con l’ID script nelle impostazioni del progetto Apps Script.
+2. Aggiungi nello stesso ambiente il segreto `CLASPRC_JSON` con il contenuto del file `~/.clasprc.json` creato dall’accesso Google. Conserva il valore in GitHub Secrets.
+3. Avvia Deploy Apps Script da Actions con Publish disattivato. La verifica legge progetto e versione pubblica e prepara il contenuto in una directory temporanea.
+4. Per un rilascio incrementa la versione di `doGet` in `Code.gs` quando cambiano i file del backend. Sposta il branch `deploy/apps-script` al commit da pubblicare oppure usa Publish nell’avvio manuale. Il workflow scarica prima il progetto e conserva il manifest e i file presenti solo nell’editor. Verifica il valore di versione sullo stesso URL `/exec` dopo il deployment.
+5. Verifica l’esito di Actions prima di unire eventuali modifiche frontend che dipendono dal backend. Gestisci da Git le modifiche ai file `.gs` contenuti in `backend/`.
